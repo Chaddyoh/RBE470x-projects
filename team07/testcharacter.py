@@ -7,6 +7,10 @@ from colorama import Fore, Back
 import heapq
 import math
 
+class Enum():
+    TRAVELING = 0
+    FLEEING = 1
+
 class PriorityQueue():
     
     def __init__(self):
@@ -47,6 +51,8 @@ class PriorityQueue():
     
 
 class TestCharacter(CharacterEntity):
+    state = Enum.TRAVELING
+        
     def locate_exit(self, wrld) -> tuple: # Returns X,Y tuple for exit
         for x_coordinate in range(wrld.width()):
             for y_coordinate in range(wrld.height()):
@@ -113,11 +119,38 @@ class TestCharacter(CharacterEntity):
         
         self.move(dx, dy)
 
+    def check_for_monster(self, wrld, current): 
+        neighbors = []
+        for dx in [-3,0,3]:
+            if (current[0]+dx >=0) and (current[0]+dx < wrld.width()):
+                for dy in [-3,0,3]:
+                    if (current[1]+dy >=0) and (current[1]+dy < wrld.height()):
+                        if wrld.monsters_at(current[0]+dx, current[1]+dy):
+                            return (current[0]+dx, current[1]+dy)
+        return None 
+    
+    def avoid_monster(self, monster_pos): # Ex (-3, 1)
+        # expectimax stuff here
+        self.next_step()
+
     def do(self, wrld):
         # Your code here
         exit = self.locate_exit(wrld)
         start = (self.x, self.y)
-        path = self.plan_path(wrld, start, exit)
-        self.color_path(path)
-        if len(path) > 1:
-            self.next_step(path)
+
+
+        match self.state:
+            case Enum.TRAVELING:
+                monster_loc = self.check_for_monster(wrld, (self.x, self.y))
+                if monster_loc: 
+                    self.avoid_monster(monster_loc)
+                    self.state = Enum.FLEEING
+                else: 
+                    path = self.plan_path(wrld, start, exit)
+                    self.color_path(path)
+                    if len(path) > 1:
+                        self.next_step(path)
+            case Enum.FLEEING:
+                pass
+        
+               
