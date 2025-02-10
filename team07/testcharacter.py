@@ -59,7 +59,7 @@ class TestCharacter(CharacterEntity):
             if (current[0]+dx >=0) and (current[0]+dx < wrld.width()):
                 for dy in [-1,0,1]:
                     if (current[1]+dy >=0) and (current[1]+dy < wrld.height()):
-                        if wrld.empty_at(current[0]+dx, current[1]+dy):
+                        if wrld.empty_at(current[0]+dx, current[1]+dy) or wrld.exit_at(current[0]+dx, current[1]+dy):
                             neighbors.append((current[0]+dx, current[1]+dy))
         return neighbors    
                 
@@ -92,20 +92,16 @@ class TestCharacter(CharacterEntity):
     
         path = [goal]
         previous_node = goal
-        print("goal: ", goal)
-        print("Came from; ", came_from)
         while not previous_node == start:
             next_node = came_from[previous_node]
             path.append(next_node)
             previous_node = next_node
         
         path.reverse()
-        print("apth: ", path)
         return path
     
     def color_path(self, path): 
         for coord in path: 
-            print("coord: ", coord)
             self.set_cell_color(coord[0], coord[1], Fore.BLUE + Back.YELLOW)
 
     def next_step(self, path):
@@ -119,8 +115,7 @@ class TestCharacter(CharacterEntity):
 
     def do(self, wrld):
         # Your code here
-        # exit = self.locate_exit(wrld)
-        exit = (2,2)
+        exit = self.locate_exit(wrld)
         start = (self.x, self.y)
         path = self.plan_path(wrld, start, exit)
         self.color_path(path)
