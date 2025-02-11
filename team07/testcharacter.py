@@ -126,52 +126,86 @@ class TestCharacter(CharacterEntity):
                 for dy in [-3,-2,-1,0,1,2,3]:
                     if (current[1]+dy >=0) and (current[1]+dy < wrld.height()):
                         if wrld.monsters_at(current[0]+dx, current[1]+dy):
+                            print("Monster detected at: ", (current[0]+dx, current[1]+dy))
                             return (current[0]+dx, current[1]+dy)
         return None 
     
+    
     def avoid_monster(self, monster_pos, wrld): # Ex (-3, 1)
         # expectimax stuff here
-        actions = self.get_neighbors(wrld,(self.x, self.y)) # all player moves
-        actions.append((self.x, self.y))
+        actions = [(1,0), (1,1), (0,1), (-1,0), (-1, -1), (0, -1), (-1, 1), (1,-1), (0,0)] # all player moves
         # add the option of not moving 
 
         def Expectimax_Search(state): # returns an action
             # return arg maxa∈Actions(state)Exp-value(Result(state,a))
-            return max()
+            max_so_far = -math.inf
+            best_action = (0,0)
+            print("currnt loc: ", self.x, self.y)
+            for a in actions: 
+                v = Exp_value(result(state, a))
+                print("(in top search) expected val for action ", a, " is ", v)
+                if v > max_so_far: 
+                    max_so_far = v
+                    best_action = a
+            self.set_cell_color(state[0], state[1], Fore.BLUE + Back.BLUE)
+            print("best action is: ", best_action)
+            return best_action
 
         def Exp_value(state): #returns a utility value 
-            if self.terminal_test(state, wrld):  return self.utility(state)
+            if terminal_test(state, wrld):  return utility(state)
             v = 0
-            for each a in Actions(state): #Actions of state will be list of tuples
+            for a in actions[state]: #Actions of state will be list of tuples
                 p = Probability(a)
-                v = v + p * Max_value(Result(state, a))
+                v = v + p * Max_value(result(state, a))
             return v
 
         def Max_value(state): # returns a utility value
-            if self.terminal_test(state, wrld): return self.utility(state)
+            if terminal_test(state, wrld): return utility(state)
             v = -math.inf
-            for each a in Actions(state):
-                v = max(v, Exp_value(Result(state,a)))
+            for a in actions[state]:
+                v = max(v, Exp_value(result(state,a)))
+                print("expected val for action ", a, " is ", v)
+            print("max val: ", v)
             return v
+        
+        def Probability(action):
+            """Return a probability that the monster will take this action"""
+            # TODO: monster has higher probability for action towards player character 
+            return 1.0/8
+        
+        def result(location, action): 
+            """Returns the new location after taking an action"""
+            new_x = location[0] + action[0]
+            new_y = location[1] + action[1]
             
+            print("result: ", (new_x, new_y))
+            return (new_x, new_y)
+        
+        def terminal_test(state, wrld): 
+            """ True if we have successfully avoided the monster. Can stop fleeing"""
+            if self.check_for_monster(wrld, (self.x, self.y)) == False:
+                print("Monster Avoided!! Going back to path planning...")
+            return self.check_for_monster(wrld, (self.x, self.y))
+
+        def utility(state):
+            # TODO: account for the distance between this state and the exit 
+            if wrld.empty_at(state[0], state[1]):
+                utility = self.longest_dist - self.heuristic(state, self.exit)
+            else:
+                utility = 0
+            return utility
             
-        self.next_step()
+        best_action = Expectimax_Search((self.x, self.y))
+        self.move(best_action[0], best_action[1])
     
-    def terminal_test(self, state, wrld): 
-        """ True if we have successfully avoided the monster. Can stop fleeing"""
-        return self.check_for_monster(wrld, (self.x, self.y))
-
-    def utility(self, state):
-        for action in Action(state):
-            for next_coord_of_monster in possible_monster_coords():
+    
                 
-                
-        pass
-
+                           
     def do(self, wrld):
         # Your code here
-        exit = self.locate_exit(wrld)
+        self.exit = self.locate_exit(wrld)
         start = (self.x, self.y)
+        self.longest_dist = self.heuristic((0,0), self.exit)
 
         monster_loc = self.check_for_monster(wrld, (self.x, self.y))
 
@@ -179,19 +213,20 @@ class TestCharacter(CharacterEntity):
             case Enum.TRAVELING:
                 if monster_loc: 
                     self.avoid_monster(monster_loc, wrld)
+                    print("Begin fleeing")
                     self.state = Enum.FLEEING
                 else: 
-                    path = self.plan_path(wrld, start, exit)
+                    path = self.plan_path(wrld, start, self.exit)
                     self.color_path(path)
                     self.next_step(path)
             case Enum.FLEEING:
-                if not monster_loc:
-                    path = self.plan_path(wrld, start, exit)
+                if monster_loc: 
+                    self.avoid_monster(monster_loc, wrld)
+                else:
+                    path = self.plan_path(wrld, start, self.exit)
                     self.color_path(path)
                     self.next_step(path)
                     self.state = Enum.TRAVELING
-                else:
-                    pass
 
         
                
