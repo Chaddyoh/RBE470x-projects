@@ -189,8 +189,12 @@ class TestCharacter(CharacterEntity):
 
         def utility(state):
             # TODO: account for the distance between this state and the exit 
-            if wrld.empty_at(state[0], state[1]):
-                utility = self.longest_dist - self.heuristic(state, self.exit)
+            alpha = 0.001
+            if state[0] > 0 and state[0] < wrld.width() and state[1] > 0 and state[1] < wrld.height():
+                if wrld.empty_at(state[0], state[1]):
+                    utility = self.longest_dist - alpha * self.heuristic(state, self.exit)
+                else:
+                    utility = 0
             else:
                 utility = 0
             return utility
