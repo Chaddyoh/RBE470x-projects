@@ -52,6 +52,7 @@ class PriorityQueue():
 
 class TestCharacter(CharacterEntity):
     state = Enum.TRAVELING
+    max_depth = 10
     monsters = []
         
     def locate_exit(self, wrld) -> tuple: # Returns X,Y tuple for exit
@@ -135,52 +136,56 @@ class TestCharacter(CharacterEntity):
                         #     # return (current[0]+dx, current[1]+dy)
         return monsters_list 
     
-    
+    def is_valid_space(self, wrld, loc):
+        if loc[0] > 0 and loc[0] < wrld.width() and loc[1] > 0 and loc[1] < wrld.height(): # if state location is within the map 
+            return wrld.empty_at(loc[0], loc[1])
+        return False
+
     def avoid_monster(self, monster_pos, wrld): # Ex (-3, 1)
         # expectimax stuff here
         actions = [(1,0), (1,1), (0,1), (-1,0), (-1, -1), (0, -1), (-1, 1), (1,-1), (0,0)] # all player moves
-        depth_counter = 0
-        # add the option of not moving 
+        self.depth_counter = 0
 
         def Expectimax_Search(state): # returns an action
-            global depth_counter
             # return arg maxa∈Actions(state)Exp-value(Result(state,a))
             max_so_far = -math.inf
             best_action = (0,0)
-            print("currnt loc: ", self.x, self.y)
+            # print("currnt loc: ", self.x, self.y)
             for a in actions: 
-                depth_counter = 0
-                v = Exp_value(result(state, a))
-                print(depth_counter)
-                print("(in top search) expected val for action ", a, " is ", v)
-                if v > max_so_far: 
-                    max_so_far = v
-                    best_action = a
+                if self.is_valid_space(wrld, result(state, a)): 
+                    self.depth_counter = 0
+                    v = Exp_value(result(state, a))
+                    # print("(in top search) expected val for action ", a, " is ", v)
+                    if v > max_so_far: 
+                        max_so_far = v
+                        best_action = a
             self.set_cell_color(state[0], state[1], Fore.BLUE + Back.BLUE)
-            print("best action is: ", best_action)
+            # print("best action is: ", best_action)
             return best_action
 
         def Exp_value(state): #returns a utility value 
-            global depth_counter
-            depth_counter += 1 
             monster_list = terminal_test(state, wrld)
-            if monster_list:  return utility(state, monster_list)
+            if (not monster_list) or (self.depth_counter > self.max_depth): 
+                return utility(state, monster_list)
             v = 0
+            self.depth_counter += 1 
             for a in actions: #Actions of state will be list of tuples # used to be actions[state]
-                p = Probability(a)
-                v = v + p * Max_value(result(state, a))
+                if self.is_valid_space(wrld, result(state, a)): 
+                    p = Probability(a, monster_list)
+                    v = v + p * Max_value(result(state, a))
             return v
 
         def Max_value(state): # returns a utility value
-            global depth_counter
-            depth_counter += 1 
+            # self.depth_counter += 1 
             monster_list = terminal_test(state, wrld)
-            if monster_list: return utility(state, monster_list)
+            if (not monster_list) or (self.depth_counter > self.max_depth): return utility(state, monster_list)
             v = -math.inf
+            self.depth_counter += 1 
             for a in actions:
-                v = max(v, Exp_value(result(state,a)))
-                print("expected val for action ", a, " is ", v)
-            print("max val: ", v)
+                if self.is_valid_space(wrld, result(state, a)): 
+                    v = max(v, Exp_value(result(state,a)))
+                # print("expected val for action ", a, " is ", v)
+            # print("max val: ", v)
             return v
         
         def Probability(action, monsterlist):
@@ -190,14 +195,14 @@ class TestCharacter(CharacterEntity):
                 if monster.name == "stupid":
                     return 1.0/8
                 elif monster.name == "aggressive":
-                    return 1     
+                    return 1    
+                else:
+                    return 1
                    
         def result(location, action) -> tuple: 
             """Returns the new location after taking an action"""
             new_x = location[0] + action[0]
             new_y = location[1] + action[1]
-            
-            print("result: ", (new_x, new_y))
             return (new_x, new_y)
         
         def terminal_test(state, wrld): 
@@ -210,16 +215,13 @@ class TestCharacter(CharacterEntity):
             # TODO: account for the distance between this state and the exit 
             alpha = 0.05
             utility = 0
-            if state[0] > 0 and state[0] < wrld.width() and state[1] > 0 and state[1] < wrld.height():
-                if wrld.empty_at(state[0], state[1]):
-                    for monster in monster_list:
-                        monster_loc = (monster.x, monster.y)
-                        monster_distance = self.heuristic(monster_loc, state)
-                        utility += monster_distance ** 2
-                    exit_distance = len(self.plan_path(wrld, state, self.exit))
-                    utility -= alpha * exit_distance
-                else:
-                    utility = 0
+            if self.is_valid_space(wrld, state):
+                for monster in monster_list:
+                    monster_loc = (monster.x, monster.y)
+                    monster_distance = self.heuristic(monster_loc, state)
+                    utility += monster_distance ** 2
+                exit_distance = len(self.plan_path(wrld, state, self.exit))
+                utility -= alpha * exit_distance
             else:
                 utility = 0
             return utility
