@@ -222,7 +222,7 @@ class TestCharacter(CharacterEntity):
             return self.check_for_monster(wrld, (self.x, self.y))
 
         def utility(state, monster_list):
-            alpha_exit = 0.05
+            alpha_exit = 0.025
             utility = 0
             if self.is_valid_space(wrld, state):
                 for monster in monster_list:
