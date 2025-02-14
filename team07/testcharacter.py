@@ -131,36 +131,50 @@ class TestCharacter(CharacterEntity):
                         monster_square = wrld.monsters_at(current[0]+dx, current[1]+dy)
                         if monster_square:
                             monsters_list += monster_square
-                        # if monsters:
-                        #     print("Monster detected at: ", (current[0]+dx, current[1]+dy))
-                        #     # return (current[0]+dx, current[1]+dy)
         return monsters_list 
     
+    def monster_range(self, wrld, state, monster):
+        if monster.name == "selfpreserving":
+            for dx in [-1,0,1]:
+                search_x = monster.x + dx
+                if (search_x>=0) and (search_x<wrld.width()):
+                    for dy in [-1,0,1]:
+                        search_y = monster.y + dy
+                        if (search_y>=0) and (search_y<wrld.width()):
+                            if state == (search_x, search_y):
+                                return True
+        elif monster.name == "aggressive":
+            for dx in [-2,-1,0,1,2]:
+                search_x = monster.x + dx
+                if (search_x>=0) and (search_x<wrld.width()):
+                    for dy in [-2,-1,0,1,2]:
+                        search_y = monster.y + dy
+                        if (search_y>=0) and (search_y<wrld.width()):
+                            if state == (search_x, search_y):
+                                return True
+        return False
+
     def is_valid_space(self, wrld, loc):
         if loc[0] > 0 and loc[0] < wrld.width() and loc[1] > 0 and loc[1] < wrld.height(): # if state location is within the map 
             return wrld.empty_at(loc[0], loc[1])
         return False
 
-    def avoid_monster(self, monster_pos, wrld): # Ex (-3, 1)
+    def avoid_monster(self, wrld): # Ex (-3, 1)
         # expectimax stuff here
         actions = [(1,0), (1,1), (0,1), (-1,0), (-1, -1), (0, -1), (-1, 1), (1,-1), (0,0)] # all player moves
         self.depth_counter = 0
 
         def Expectimax_Search(state): # returns an action
-            # return arg maxa∈Actions(state)Exp-value(Result(state,a))
             max_so_far = -math.inf
             best_action = (0,0)
-            # print("currnt loc: ", self.x, self.y)
             for a in actions: 
                 if self.is_valid_space(wrld, result(state, a)): 
                     self.depth_counter = 0
                     v = Exp_value(result(state, a))
-                    # print("(in top search) expected val for action ", a, " is ", v)
                     if v > max_so_far: 
                         max_so_far = v
                         best_action = a
             self.set_cell_color(state[0], state[1], Fore.BLUE + Back.BLUE)
-            # print("best action is: ", best_action)
             return best_action
 
         def Exp_value(state): #returns a utility value 
@@ -171,12 +185,11 @@ class TestCharacter(CharacterEntity):
             self.depth_counter += 1 
             for a in actions: #Actions of state will be list of tuples # used to be actions[state]
                 if self.is_valid_space(wrld, result(state, a)): 
-                    p = Probability(a, monster_list)
+                    p = Probability(result(state, a), monster_list)
                     v = v + p * Max_value(result(state, a))
             return v
 
         def Max_value(state): # returns a utility value
-            # self.depth_counter += 1 
             monster_list = terminal_test(state, wrld)
             if (not monster_list) or (self.depth_counter > self.max_depth): return utility(state, monster_list)
             v = -math.inf
@@ -184,20 +197,19 @@ class TestCharacter(CharacterEntity):
             for a in actions:
                 if self.is_valid_space(wrld, result(state, a)): 
                     v = max(v, Exp_value(result(state,a)))
-                # print("expected val for action ", a, " is ", v)
-            # print("max val: ", v)
             return v
         
-        def Probability(action, monsterlist):
+        def Probability(state, monsterlist):
             """Return a probability that the monster will take this action"""
-            # TODO: monster has higher probability for action towards player character 
             for monster in monsterlist:
                 if monster.name == "stupid":
-                    return 1.0/8
-                elif monster.name == "aggressive":
-                    return 1    
+                    return 1.0/8 
                 else:
                     return 1
+                    # if self.monster_range(wrld, state, monster):
+                    #     return 1
+                    # else:
+                    #     return 1.0/8
                    
         def result(location, action) -> tuple: 
             """Returns the new location after taking an action"""
@@ -207,13 +219,10 @@ class TestCharacter(CharacterEntity):
         
         def terminal_test(state, wrld): 
             """ True if we have successfully avoided the monster. Can stop fleeing"""
-            # if self.check_for_monster(wrld, (self.x, self.y)) == False:
-            #     print("Monster Avoided!! Going back to path planning...")
             return self.check_for_monster(wrld, (self.x, self.y))
 
         def utility(state, monster_list):
-            # TODO: account for the distance between this state and the exit 
-            alpha = 0.05
+            alpha_exit = 0.05
             utility = 0
             if self.is_valid_space(wrld, state):
                 for monster in monster_list:
@@ -221,7 +230,7 @@ class TestCharacter(CharacterEntity):
                     monster_distance = self.heuristic(monster_loc, state)
                     utility += monster_distance ** 2
                 exit_distance = len(self.plan_path(wrld, state, self.exit))
-                utility -= alpha * exit_distance
+                utility -= alpha_exit * exit_distance
             else:
                 utility = 0
             return utility
@@ -236,7 +245,6 @@ class TestCharacter(CharacterEntity):
         # Your code here
         self.exit = self.locate_exit(wrld)
         start = (self.x, self.y)
-        self.longest_dist = self.heuristic((0,0), self.exit)
         monster_loc = None
 
         if self.check_for_monster(wrld, (self.x, self.y)):
@@ -246,8 +254,7 @@ class TestCharacter(CharacterEntity):
         match self.state:
             case Enum.TRAVELING:
                 if monster_loc: 
-                    self.avoid_monster(monster_loc, wrld)
-                    print("Begin fleeing")
+                    self.avoid_monster(wrld)
                     self.state = Enum.FLEEING
                 else: 
                     path = self.plan_path(wrld, start, self.exit)
@@ -255,7 +262,7 @@ class TestCharacter(CharacterEntity):
                     self.next_step(path)
             case Enum.FLEEING:
                 if monster_loc: 
-                    self.avoid_monster(monster_loc, wrld)
+                    self.avoid_monster(wrld)
                 else:
                     path = self.plan_path(wrld, start, self.exit)
                     self.color_path(path)
