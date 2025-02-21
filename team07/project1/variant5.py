@@ -14,23 +14,24 @@ sys.path.insert(1, '../teamNN')
 from testcharacter import TestCharacter
 
 # Create the game
-random.seed(123) # TODO Change this if you want different random choices
-g = Game.fromfile('map.txt')
-g.add_monster(StupidMonster("stupid", # name
-                            "S",      # avatar
-                            3, 5,     # position
-))
-g.add_monster(SelfPreservingMonster("aggressive", # name
-                                    "A",          # avatar
-                                    3, 13,        # position
-                                    1             # detection range
-))
+# random.seed(123) # TODO Change this if you want different random choices
+for x in range(10):
+    g = Game.fromfile('map.txt')
+    g.add_monster(StupidMonster("stupid", # name
+                                "S",      # avatar
+                                3, 5,     # position
+    ))
+    g.add_monster(SelfPreservingMonster("aggressive", # name
+                                        "A",          # avatar
+                                        3, 13,        # position
+                                        1             # detection range
+    ))
 
-# TODO Add your character
-g.add_character(TestCharacter("me", # name
-                              "C",  # avatar
-                              0, 0  # position
-))
+    # TODO Add your character
+    g.add_character(TestCharacter("me", # name
+                                "C",  # avatar
+                                0, 0  # position
+    ))
 
-# Run!
-g.go()
+    # Run!
+    g.go(1)

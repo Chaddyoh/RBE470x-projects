@@ -7,6 +7,10 @@ from colorama import Fore, Back
 import heapq
 import math
 
+class Enum():
+    TRAVELING = 0
+    FLEEING = 1
+
 class PriorityQueue():
     
     def __init__(self):
@@ -47,6 +51,10 @@ class PriorityQueue():
     
 
 class TestCharacter(CharacterEntity):
+    state = Enum.TRAVELING
+    max_depth = 10
+    monsters = []
+        
     def locate_exit(self, wrld) -> tuple: # Returns X,Y tuple for exit
         for x_coordinate in range(wrld.width()):
             for y_coordinate in range(wrld.height()):
@@ -67,7 +75,7 @@ class TestCharacter(CharacterEntity):
         euclidean_dist = math.sqrt((point2[0] - point1[0])**2 + (point2[1] - point1[1])**2)
         return euclidean_dist
     
-    def plan_path(self, wrld, start, goal):
+    def plan_path(self, wrld, start, goal) -> list[tuple]:
         frontier = PriorityQueue()
         frontier.put(start, 0)
         came_from = {}
@@ -100,11 +108,11 @@ class TestCharacter(CharacterEntity):
         path.reverse()
         return path
     
-    def color_path(self, path): 
+    def color_path(self, path) -> None: 
         for coord in path: 
             self.set_cell_color(coord[0], coord[1], Fore.BLUE + Back.YELLOW)
 
-    def next_step(self, path):
+    def next_step(self, path) -> None:
         current_node = path[0]
         next_node = path[1]
 
@@ -113,11 +121,154 @@ class TestCharacter(CharacterEntity):
         
         self.move(dx, dy)
 
+    def check_for_monster(self, wrld, current) -> tuple: 
+        global monsters
+        monsters_list = []
+        for dx in [-3,-2,-1,0,1,2,3]:
+            if (current[0]+dx >=0) and (current[0]+dx < wrld.width()):
+                for dy in [-3,-2,-1,0,1,2,3]:
+                    if (current[1]+dy >=0) and (current[1]+dy < wrld.height()):
+                        monster_square = wrld.monsters_at(current[0]+dx, current[1]+dy)
+                        if monster_square:
+                            monsters_list += monster_square
+        return monsters_list 
+    
+    def monster_range(self, wrld, state, monster):
+        if monster.name == "selfpreserving":
+            for dx in [-1,0,1]:
+                search_x = monster.x + dx
+                if (search_x>=0) and (search_x<wrld.width()):
+                    for dy in [-1,0,1]:
+                        search_y = monster.y + dy
+                        if (search_y>=0) and (search_y<wrld.width()):
+                            if state == (search_x, search_y):
+                                return True
+        elif monster.name == "aggressive":
+            for dx in [-2,-1,0,1,2]:
+                search_x = monster.x + dx
+                if (search_x>=0) and (search_x<wrld.width()):
+                    for dy in [-2,-1,0,1,2]:
+                        search_y = monster.y + dy
+                        if (search_y>=0) and (search_y<wrld.width()):
+                            if state == (search_x, search_y):
+                                return True
+        return False
+
+    def is_valid_space(self, wrld, loc):
+        if loc[0] > 0 and loc[0] < wrld.width() and loc[1] > 0 and loc[1] < wrld.height(): # if state location is within the map 
+            return wrld.empty_at(loc[0], loc[1])
+        return False
+
+    def avoid_monster(self, wrld): # Ex (-3, 1)
+        # expectimax stuff here
+        actions = [(1,0), (1,1), (0,1), (-1,0), (-1, -1), (0, -1), (-1, 1), (1,-1), (0,0)] # all player moves
+        self.depth_counter = 0
+
+        def Expectimax_Search(state): # returns an action
+            max_so_far = -math.inf
+            best_action = (0,0)
+            for a in actions: 
+                if self.is_valid_space(wrld, result(state, a)): 
+                    self.depth_counter = 0
+                    v = Exp_value(result(state, a))
+                    if v > max_so_far: 
+                        max_so_far = v
+                        best_action = a
+            self.set_cell_color(state[0], state[1], Fore.BLUE + Back.BLUE)
+            return best_action
+
+        def Exp_value(state): #returns a utility value 
+            monster_list = terminal_test(state, wrld)
+            if (not monster_list) or (self.depth_counter > self.max_depth): 
+                return utility(state, monster_list)
+            v = 0
+            self.depth_counter += 1 
+            for a in actions: #Actions of state will be list of tuples # used to be actions[state]
+                if self.is_valid_space(wrld, result(state, a)): 
+                    p = Probability(result(state, a), monster_list)
+                    v = v + p * Max_value(result(state, a))
+            return v
+
+        def Max_value(state): # returns a utility value
+            monster_list = terminal_test(state, wrld)
+            if (not monster_list) or (self.depth_counter > self.max_depth): return utility(state, monster_list)
+            v = -math.inf
+            self.depth_counter += 1 
+            for a in actions:
+                if self.is_valid_space(wrld, result(state, a)): 
+                    v = max(v, Exp_value(result(state,a)))
+            return v
+        
+        def Probability(state, monsterlist):
+            """Return a probability that the monster will take this action"""
+            for monster in monsterlist:
+                if monster.name == "stupid":
+                    return 1.0/8 
+                else:
+                    return 1
+                    # if self.monster_range(wrld, state, monster):
+                    #     return 1
+                    # else:
+                    #     return 1.0/8
+                   
+        def result(location, action) -> tuple: 
+            """Returns the new location after taking an action"""
+            new_x = location[0] + action[0]
+            new_y = location[1] + action[1]
+            return (new_x, new_y)
+        
+        def terminal_test(state, wrld): 
+            """ True if we have successfully avoided the monster. Can stop fleeing"""
+            return self.check_for_monster(wrld, (self.x, self.y))
+
+        def utility(state, monster_list):
+            alpha_exit = 0.025
+            utility = 0
+            if self.is_valid_space(wrld, state):
+                for monster in monster_list:
+                    monster_loc = (monster.x, monster.y)
+                    monster_distance = self.heuristic(monster_loc, state)
+                    utility += monster_distance ** 2
+                exit_distance = len(self.plan_path(wrld, state, self.exit))
+                utility -= alpha_exit * exit_distance
+            else:
+                utility = 0
+            return utility
+            
+        best_action = Expectimax_Search((self.x, self.y))
+        self.move(best_action[0], best_action[1])
+    
+    
+                
+                           
     def do(self, wrld):
         # Your code here
-        exit = self.locate_exit(wrld)
+        self.exit = self.locate_exit(wrld)
         start = (self.x, self.y)
-        path = self.plan_path(wrld, start, exit)
-        self.color_path(path)
-        if len(path) > 1:
-            self.next_step(path)
+        monster_loc = None
+
+        if self.check_for_monster(wrld, (self.x, self.y)):
+            first_seen_monster = self.check_for_monster(wrld, (self.x, self.y))[0]
+            monster_loc = (first_seen_monster.x, first_seen_monster.y)
+
+        match self.state:
+            case Enum.TRAVELING:
+                if monster_loc: 
+                    self.avoid_monster(wrld)
+                    self.state = Enum.FLEEING
+                else: 
+                    path = self.plan_path(wrld, start, self.exit)
+                    self.color_path(path)
+                    self.next_step(path)
+            case Enum.FLEEING:
+                if monster_loc: 
+                    self.avoid_monster(wrld)
+                else:
+                    path = self.plan_path(wrld, start, self.exit)
+                    self.color_path(path)
+                    self.next_step(path)
+                    self.state = Enum.TRAVELING
+                       
+
+        
+               
