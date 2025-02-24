@@ -10,6 +10,8 @@ import math
 class Enum():
     TRAVELING = 0
     FLEEING = 1
+    WAITING = 2
+    TRAPPED = 3
 
 class PriorityQueue():
     
@@ -67,13 +69,19 @@ class TestCharacter(CharacterEntity):
             if (current[0]+dx >=0) and (current[0]+dx < wrld.width()):
                 for dy in [-1,0,1]:
                     if (current[1]+dy >=0) and (current[1]+dy < wrld.height()):
-                        if wrld.empty_at(current[0]+dx, current[1]+dy) or wrld.exit_at(current[0]+dx, current[1]+dy):
+                        if wrld.empty_at(current[0]+dx, current[1]+dy) or wrld.exit_at(current[0]+dx, current[1]+dy) or wrld.wall_at(current[0]+dx, current[1]+dy):
                             neighbors.append((current[0]+dx, current[1]+dy))
         return neighbors    
                 
     def heuristic(self, point1, point2) -> float:
         euclidean_dist = math.sqrt((point2[0] - point1[0])**2 + (point2[1] - point1[1])**2)
         return euclidean_dist
+    
+    def cost(self, wrld, location): 
+        if wrld.empty_at(location[0], location[1]) or wrld.exit_at(location[0], location[1]): 
+            return 1
+        elif wrld.wall_at(location[0], location[1]): 
+            return 13
     
     def plan_path(self, wrld, start, goal) -> list[tuple]:
         frontier = PriorityQueue()
@@ -82,13 +90,13 @@ class TestCharacter(CharacterEntity):
         cost_so_far = {}
         came_from[start] = None
         cost_so_far[start] = 0
-
+        
         while not frontier.empty():
             current = frontier.get()
 
             for next in self.get_neighbors(wrld, current):
                 self.set_cell_color(next[0], next[1], Fore.WHITE + Back.MAGENTA)
-                new_cost = cost_so_far[current] + 1 # the cost to each adjacent cell is 1 # graph.cost(current, next)
+                new_cost = cost_so_far[current] + self.cost(wrld, next)
                 if next not in cost_so_far or new_cost < cost_so_far[next]:
                     cost_so_far[next] = new_cost
                     priority = new_cost + self.heuristic(goal, next)
@@ -97,29 +105,36 @@ class TestCharacter(CharacterEntity):
 
             if current == goal:
                 break
-    
-        path = [goal]
-        previous_node = goal
-        while not previous_node == start:
-            next_node = came_from[previous_node]
-            path.append(next_node)
-            previous_node = next_node
-        
-        path.reverse()
+
+        try:
+            path = [goal]
+            previous_node = goal
+            while not previous_node == start:
+                next_node = came_from[previous_node]
+                path.append(next_node)
+                previous_node = next_node
+            
+            path.reverse()
+        except:
+            path = []
+            
         return path
     
     def color_path(self, path) -> None: 
         for coord in path: 
             self.set_cell_color(coord[0], coord[1], Fore.BLUE + Back.YELLOW)
 
-    def next_step(self, path) -> None:
+    def next_step(self, wrld, path) -> None:
         current_node = path[0]
         next_node = path[1]
 
         dx = next_node[0] - current_node[0]
         dy = next_node[1] - current_node[1]
         
-        self.move(dx, dy)
+        if wrld.empty_at(self.x + dx, self.y + dy):
+            self.move(dx, dy)
+        else: 
+            self.place_bomb()
 
     def check_for_monster(self, wrld, current) -> tuple: 
         global monsters
@@ -156,7 +171,8 @@ class TestCharacter(CharacterEntity):
 
     def is_valid_space(self, wrld, loc):
         if loc[0] > 0 and loc[0] < wrld.width() and loc[1] > 0 and loc[1] < wrld.height(): # if state location is within the map 
-            return wrld.empty_at(loc[0], loc[1])
+            return wrld.empty_at(loc[0], loc[1]) # Code to check if empty except for wall: wrld.exit_at(loc[0], loc[1]) or wrld.bomb_at(loc[0], loc[1]) or wrld.explosion_at(loc[0], loc[1]) or wrld.monsters_at(loc[0], loc[1]) or wrld.characters_at(loc[0], loc[1]) 
+               
         return False
 
     def avoid_monster(self, wrld): # Ex (-3, 1)
@@ -238,7 +254,12 @@ class TestCharacter(CharacterEntity):
         best_action = Expectimax_Search((self.x, self.y))
         self.move(best_action[0], best_action[1])
     
-    
+    def is_trapped(self, wrld, path):
+        for cell in path:
+            if wrld.wall_at(cell[0], cell[1]):
+                return True
+        return False
+
                 
                            
     def do(self, wrld):
@@ -251,23 +272,34 @@ class TestCharacter(CharacterEntity):
             first_seen_monster = self.check_for_monster(wrld, (self.x, self.y))[0]
             monster_loc = (first_seen_monster.x, first_seen_monster.y)
 
+        path = self.plan_path(wrld, start, self.exit)
+        trapped = self.is_trapped(wrld, path)
+
         match self.state:
             case Enum.TRAVELING:
                 if monster_loc: 
                     self.avoid_monster(wrld)
                     self.state = Enum.FLEEING
-                else: 
-                    path = self.plan_path(wrld, start, self.exit)
+                elif trapped:
                     self.color_path(path)
-                    self.next_step(path)
+                    self.next_step(wrld, path)
+                    print("help im trapped")
+                else: 
+                    self.color_path(path)
+                    self.next_step(wrld, path)
             case Enum.FLEEING:
                 if monster_loc: 
                     self.avoid_monster(wrld)
-                else:
-                    path = self.plan_path(wrld, start, self.exit)
+                elif trapped: 
                     self.color_path(path)
-                    self.next_step(path)
-                    self.state = Enum.TRAVELING
+                    print("help im trapped")
+                else:
+                    self.color_path(path)
+                    self.next_step(wrld, path)
+                    self.state = Enum.TRAVELING                    
+            case Enum.WAITING: 
+                pass
+
                        
 
         
