@@ -10,8 +10,8 @@ import math
 class Enum():
     TRAVELING = 0
     FLEEING = 1
-    WAITING = 2
-    TRAPPED = 3
+    BOMBING = 2
+    WAITING = 3
 
 class PriorityQueue():
     
@@ -55,7 +55,9 @@ class PriorityQueue():
 class TestCharacter(CharacterEntity):
     state = Enum.TRAVELING
     max_depth = 10
+    timestep = 0
     monsters = []
+    weights = [1, 1, 1]
         
     def locate_exit(self, wrld) -> tuple: # Returns X,Y tuple for exit
         for x_coordinate in range(wrld.width()):
@@ -124,17 +126,27 @@ class TestCharacter(CharacterEntity):
         for coord in path: 
             self.set_cell_color(coord[0], coord[1], Fore.BLUE + Back.YELLOW)
 
-    def next_step(self, wrld, path) -> None:
-        current_node = path[0]
-        next_node = path[1]
+    def next_step(self, wrld, path=None) -> None:
+        if path:
+            current_node = path[0]
+            next_node = path[1]
 
-        dx = next_node[0] - current_node[0]
-        dy = next_node[1] - current_node[1]
-        
-        if wrld.empty_at(self.x + dx, self.y + dy):
-            self.move(dx, dy)
-        else: 
-            self.place_bomb()
+            dx = next_node[0] - current_node[0]
+            dy = next_node[1] - current_node[1]
+            
+            if wrld.empty_at(self.x + dx, self.y + dy):
+                self.move(dx, dy)
+            else: 
+                self.place_bomb()
+                self.bomb_loc = (self.x, self.y)
+                self.bomb_placed_time = self.timestep
+        elif self.state == Enum.BOMBING:
+            if wrld.empty_at(self.x-1, self.y-1):
+                self.move(-1, -1)
+            elif wrld.empty_at(self.x+1, self.y-1): 
+                self.move(1, -1)
+        else:
+            print("cry")
 
     def check_for_monster(self, wrld, current) -> tuple: 
         global monsters
@@ -260,8 +272,71 @@ class TestCharacter(CharacterEntity):
                 return True
         return False
 
-                
-                           
+    def is_in_blast_radius(self, wrld): 
+        return self.x != self.bomb_loc[0] and self.y != self.bomb_loc[1]
+    
+    def feature_calculator(self, wrld, state): 
+        x = state[0]
+        y = state[1]
+        # monster_loc (int, int) / monster_count (int)
+        # bomb_loc (int, int)
+        #     if bomb_loc >bomb_timer (in)
+        #     if bomb_loc -> in_bomb_pth (bool)
+        # exit_loc (int, int)
+        # 
+
+
+    def reward_calculator(self, wrld, state):
+        if wrld.empty_at(state): 
+            reward = 1
+        elif wrld.exit_at(state): 
+            reward = 5000
+        elif wrld.wall_at(state): 
+            reward = -1
+        # elif wrld.bomb_at(state): 
+        #     reward = 0
+        elif wrld.monsters_at(state):
+            reward = -5000
+        elif wrld.explosion_at(state): 
+            reward = -5000
+        else:
+            reward = 1
+
+        return reward
+           
+    def q_learning(self, wrld, state):
+        w1, w2, w3 = self.weights  # to get weights
+        alpha = 0.5
+        gamma = 0.9
+        actions = ['N', 'NW', 'W', 'SW', 'S', 'SE', 'E', 'NE', "stay", "bomb"] # all player moves
+
+        features = self.feature_calculator(state)
+        
+        # Q(s, a) = w1f1 + w2f2 + ...etc
+        q = 0
+        for i in range(len(self.weights)):
+            q += self.weights[i] * features[i]
+
+        max_Q = -math.inf
+        # Max Q(s', a') part
+        for a in actions: 
+            new_state = state + a #??? how calculate -> do later!
+            new_features = self.feature_calculator(new_state)
+            Q_next_state = 0
+            for i in range(len(self.weights)):
+                Q_next_state += self.weights[i] * new_features[i]
+            
+            if Q_next_state > max_Q: 
+                max_Q = Q_next_state
+        
+        r = self.reward_calculator(state)
+        delta = [r + gamma*max_Q] - q
+        
+        # Update weights
+        for i in range(len(self.weights)):
+            self.weightsi = self.weights[i] + alpha * delta * features[i]
+        
+                  
     def do(self, wrld):
         # Your code here
         self.exit = self.locate_exit(wrld)
@@ -274,33 +349,51 @@ class TestCharacter(CharacterEntity):
 
         path = self.plan_path(wrld, start, self.exit)
         trapped = self.is_trapped(wrld, path)
+        not_in_range_of_bomb = self.is_in_blast_radius(wrld)
+        time_left = self.timestep - self.bomb_placed_time
+        # TODO: use time left in bomb to determine actions
 
         match self.state:
             case Enum.TRAVELING:
                 if monster_loc: 
-                    self.avoid_monster(wrld)
                     self.state = Enum.FLEEING
                 elif trapped:
+                    # Move to wall, then place Bomb
                     self.color_path(path)
                     self.next_step(wrld, path)
-                    print("help im trapped")
+                    # Switch States
+                    self.state = Enum.BOMBING
                 else: 
+                    # A* walking
                     self.color_path(path)
                     self.next_step(wrld, path)
+            case Enum.BOMBING:
+                if not_in_range_of_bomb: # Player in danger of explosion
+                    self.state = Enum.WAITING
+                else: 
+                    self.next_step(wrld)
             case Enum.FLEEING:
-                if monster_loc: 
-                    self.avoid_monster(wrld)
+                if not monster_loc: 
+                    if self.bomb_loc: # Bomb is on map
+                        self.state = Enum.BOMBING
+                    else:
+                        self.color_path(path)
+                        self.next_step(wrld, path)
+                        self.state = Enum.TRAVELING
                 elif trapped: 
                     self.color_path(path)
-                    print("help im trapped")
-                else:
-                    self.color_path(path)
                     self.next_step(wrld, path)
-                    self.state = Enum.TRAVELING                    
+                    # Switch States
+                    self.state = Enum.BOMBING
+                else:
+                    self.avoid_monster(wrld)               
             case Enum.WAITING: 
-                pass
-
-                       
-
+                if not self.bomb_loc: 
+                    # no bomb
+                    self.state = Enum.TRAVELING
+                elif monster_loc: 
+                    # MONSTER AHH
+                    self.avoid_monster(wrld)
+                    self.state = Enum.FLEEING
         
-               
+        self.timestep += 1
