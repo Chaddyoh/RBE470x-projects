@@ -272,18 +272,62 @@ class TestCharacter(CharacterEntity):
                 return True
         return False
 
-    def is_in_blast_radius(self, wrld): 
-        return self.x != self.bomb_loc[0] and self.y != self.bomb_loc[1]
+    def is_in_blast_radius(self, state = None): 
+        if not state:
+            state = (self.x, self.y)
+        return state[0] != self.bomb_loc[0] and abs(state[0] - self.bomb_loc[0]) < 5 and state[1] != self.bomb_loc[1] and abs(state[1] - self.bomb_loc[1]) < 5
     
     def feature_calculator(self, wrld, state): 
-        x = state[0]
-        y = state[1]
+        """The sole job of this is to evaluate its setup"""
+        # state contains (x,y)
         # monster_loc (int, int) / monster_count (int)
         # bomb_loc (int, int)
         #     if bomb_loc >bomb_timer (in)
         #     if bomb_loc -> in_bomb_pth (bool)
         # exit_loc (int, int)
-        # 
+
+        ### Getting all information needed for features ###
+        # In the end you have
+        # average_monster_distance, monster_count, exit_distance, bomb_distance (in_bomb_path), bomb_exists_time
+        monsters = self.check_for_monster(wrld, state)
+        monster_dists = []
+        for monster in monsters:
+            monster_loc = (monster.x, monster.y)
+            monster_dist = self.heuristic(state, monster_loc)
+            monster_dists.append(monster_dist)
+        monster_count = len(monsters)
+
+        average_monster_distance = 0
+        for monster_dist in monster_dists:
+            average_monster_distance += monster_dist
+        average_monster_distance = average_monster_distance / monster_count
+        
+        exit_loc = self.exit
+        exit_path = self.plan_path(wrld, state, exit_loc)
+        exit_dist = len(exit_path)
+        
+        bomb_loc = self.bomb_loc # assuming self.bomb_loc will be None if bomb does not exist
+        bomb_exists_time = self.timestep - self.bomb_placed_time # assuming this number increases over time
+        if bomb_loc:
+            bomb_dist = self.heuristic(state, bomb_loc)
+            bomb_dangerzone = self.is_in_blast_radius(state) # True/False
+        else:
+            bomb_dist = None
+
+        """f1=monster_dist, f2=monster_count, f3=exit_dist, f4=bomb_dist, f5=in_bomb_path + bomb_time_existing,"""
+        f1 = 1 / (average_monster_distance + 1)     # the larger the average monster distance, the smaller the f
+        f2 = monster_count / 2                      # 1.0, 0.5, or 0.0
+        f3 = 1 / (exit_dist + 1)                    # longer the distance, the smaller the f
+        f4 = 1 / (bomb_dist + 1)                    # longer the bomb distance, the smaller the f
+        f5 = 0                                      # dont account feature if not in bomb zone
+        if bomb_dangerzone:
+            f5 = 1 / (10 - bomb_exists_time)        # longer the time goes on, the smaller f5 gets (shouldnt it get larger)
+
+        return [f1, f2, f3, f4, f5]
+        
+        
+
+
 
 
     def reward_calculator(self, wrld, state):
@@ -330,7 +374,7 @@ class TestCharacter(CharacterEntity):
                 max_Q = Q_next_state
         
         r = self.reward_calculator(state)
-        delta = [r + gamma*max_Q] - q
+        delta = [r + gamma * max_Q] - q
         
         # Update weights
         for i in range(len(self.weights)):
@@ -349,7 +393,7 @@ class TestCharacter(CharacterEntity):
 
         path = self.plan_path(wrld, start, self.exit)
         trapped = self.is_trapped(wrld, path)
-        not_in_range_of_bomb = self.is_in_blast_radius(wrld)
+        not_in_range_of_bomb = self.is_in_blast_radius()
         time_left = self.timestep - self.bomb_placed_time
         # TODO: use time left in bomb to determine actions
 
