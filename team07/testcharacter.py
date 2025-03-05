@@ -388,8 +388,6 @@ class TestCharacter(CharacterEntity):
         if action == "bomb":
             character.move(0, 0)
             character.place_bomb()
-            # self.place_bomb
-            pass
         else: 
             (dx, dy) = action_dictionary[action]
             character.move(dx, dy)
@@ -402,6 +400,8 @@ class TestCharacter(CharacterEntity):
         actions = ['N', 'NW', 'W', 'SW', 'S', 'SE', 'E', 'NE', "stay", "bomb"] # all player moves
 
         features = self.feature_calculator(sensed_wrld)
+
+        print("characters: ", sensed_wrld.characters.items())
         
         # Q(s, a) = w1f1 + w2f2 + ...etc
         q = 0
@@ -411,10 +411,10 @@ class TestCharacter(CharacterEntity):
         max_Q = -math.inf
         # Max Q(s', a') part
         for a in actions: 
-            sensed_wrld = self.next_sensed_wrld(sensed_wrld, a)
+            new_sensed_wrld = self.next_sensed_wrld(sensed_wrld, a)
             Q_next_state = 0
-            if sensed_wrld.me(self):
-                new_features = self.feature_calculator(sensed_wrld)
+            if new_sensed_wrld.me(self):
+                new_features = self.feature_calculator(new_sensed_wrld)
                 for i in range(len(self.weights)):
                     Q_next_state += self.weights[i] * new_features[i]
             if Q_next_state > max_Q: 
@@ -435,11 +435,12 @@ class TestCharacter(CharacterEntity):
         # Max Q(s', a') part
         best_action = "bomb"
         for a in actions: 
-            sensed_world = self.next_sensed_wrld(wrld, a)
-            new_features = self.feature_calculator(sensed_world)
+            new_sensed_wrld = self.next_sensed_wrld(wrld, a)
             Q_next_state = 0
-            for i in range(len(self.weights)):
-                Q_next_state += self.weights[i] * new_features[i]
+            if new_sensed_wrld.me(self):
+                new_features = self.feature_calculator(new_sensed_wrld)
+                for i in range(len(self.weights)):
+                    Q_next_state += self.weights[i] * new_features[i]
             if Q_next_state > max_Q: 
                 max_Q = Q_next_state
                 best_action = a
@@ -455,6 +456,12 @@ class TestCharacter(CharacterEntity):
                 self.q_learning(sensed_world, (character.x, character.y))
                 self.pick_best_action(sensed_world)
                 sensed_world, events = sensed_world.next()
+
+                for event in events:
+                    if event.tpe == 2 or event.tpe == 3 or event.tpe == 4:
+                        finished_game = True
+
+            print(f"Weights are {self.weights} for iteration {iteration}")
                   
     def do(self, wrld):
         # Your code here
