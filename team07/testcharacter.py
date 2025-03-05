@@ -58,7 +58,7 @@ class TestCharacter(CharacterEntity):
     max_depth = 10
     timestep = 0
     monsters = []
-    weights = [1, 1, 1, 1, 1, 1, 1]
+    weights = [-1, -1, 1, -1, -1, -1, -1, -1]
     bomb_loc = None
     bomb_placed_time = 0
         
@@ -69,6 +69,8 @@ class TestCharacter(CharacterEntity):
                     return (x_coordinate, y_coordinate)   
                          
     def get_neighbors(self, wrld, current) -> list[tuple]: # Returns a list of tuples of the surrounding empty nodes. Assumes the exit node is empty
+        
+        # TODO:FIND MONSTERS TOO
         neighbors = []
         for dx in [-1,0,1]:
             if (current[0]+dx >=0) and (current[0]+dx < wrld.width()):
@@ -270,12 +272,22 @@ class TestCharacter(CharacterEntity):
         best_action = Expectimax_Search((self.x, self.y))
         self.move(best_action[0], best_action[1])
     
-    def is_trapped(self, wrld, path):
+    def trapped_with_monster(self, wrld, path_to_exit, path_to_monster): 
+        exit_trapped = False
+        monster_trapped = False
+        
+        for cell in path_to_monster:
+            if wrld.wall_at(cell[0], cell[1]):
+                monster_trapped = True
+
+        for cell in path_to_exit:
+            if wrld.wall_at(cell[0], cell[1]):
+                exit_trapped = True
+                
+        return not monster_trapped and exit_trapped
+
+    def is_by_wall(self, wrld, path): 
         return wrld.wall_at(path[1][0], path[1][1]) 
-        # for cell in path:
-        #     if wrld.wall_at(cell[0], cell[1]):
-        #         return True
-        # return Falsedanger
 
     def is_in_blast_radius(self, state = None): 
         if not state:
@@ -324,10 +336,12 @@ class TestCharacter(CharacterEntity):
         exit_path = self.plan_path(wrld, state, exit_loc)
         exit_dist = len(exit_path)
         
-        bomb_loc = self.bomb_loc # assuming self.bomb_loc will be None if bomb does not exist
+        # bomb_loc = character.bomb_loc # assuming self.bomb_loc will be None if bomb does not exist
         bomb_dangerzone = False
-        if bomb_loc:
-            bomb_exists_time = self.timestep - self.bomb_placed_time # assuming this number increases over time
+        if wrld.bombs:
+            bomb_obj = list(wrld.bombs.values())[0]
+            bomb_loc = (bomb_obj.x, bomb_obj.y)
+            bomb_exists_time = bomb_obj.timer
             bomb_dist = self.heuristic(state, bomb_loc)
             bomb_dangerzone = self.is_in_blast_radius(state) # True/False
         else:
@@ -342,14 +356,17 @@ class TestCharacter(CharacterEntity):
             f4 = 1 / (bomb_dist + 1)                # longer the bomb distance, the smaller the f
         f5 = 0                                      # dont account feature if not in bomb zone
         if bomb_dangerzone:
-            f5 = 1 / (10 - bomb_exists_time)        # longer the time goes on, the smaller f5 gets (shouldnt it get larger)
+            f5 = 1 / (bomb_exists_time + 1)        # longer the time goes on, the larger f5 gets
         f6 = 0
         if monster_count:
             f6 = 1/ (closest_monster_dist + 1)
         f7 = 0
-        if wrld.explosion_at(self.x, self.y): 
+        if wrld.explosion_at(character.x, character.y): 
             f7 = 1
-        return [f1, f2, f3, f4, f5, f6, f7]
+        f8 = 0
+        if self.is_by_wall(wrld, exit_path): 
+            f8 = 1
+        return [f1, f2, f3, f4, f5, f6, f7, f8]
         
 
 
@@ -364,7 +381,7 @@ class TestCharacter(CharacterEntity):
         # elif wrld.bomb_at(x, y): 
         #     reward = 0
         elif wrld.monsters_at(x, y):
-            reward = -5000
+            reward = -1000
         elif wrld.explosion_at(x, y): 
             reward = -5000
         else:
@@ -387,7 +404,9 @@ class TestCharacter(CharacterEntity):
         character = wrld.me(self)
         if action == "bomb":
             character.move(0, 0)
-            character.place_bomb()
+            character.place_bomb() 
+            # character.bomb_loc = (character.x, character.y)
+            # character.bomb_placed_time = character.timestep
         else: 
             (dx, dy) = action_dictionary[action]
             character.move(dx, dy)
@@ -400,8 +419,6 @@ class TestCharacter(CharacterEntity):
         actions = ['N', 'NW', 'W', 'SW', 'S', 'SE', 'E', 'NE', "stay", "bomb"] # all player moves
 
         features = self.feature_calculator(sensed_wrld)
-
-        print("characters: ", sensed_wrld.characters.items())
         
         # Q(s, a) = w1f1 + w2f2 + ...etc
         q = 0
@@ -468,15 +485,25 @@ class TestCharacter(CharacterEntity):
         self.exit = self.locate_exit(wrld)
         start = (self.x, self.y)
         monster_loc = None
+        by_wall = False
+        trapped_with_monster = False
+        path_to_monster = []
 
         if self.check_for_monster(wrld, (self.x, self.y)):
             first_seen_monster = self.check_for_monster(wrld, (self.x, self.y))[0]
             monster_loc = (first_seen_monster.x, first_seen_monster.y)
+            print("update path to monster")
+            path_to_monster = self.plan_path(wrld, start, monster_loc)
+        
+        print("path to monster: ", path_to_monster)
 
         path = self.plan_path(wrld, start, self.exit)
-        trapped = False
         if path:
-            trapped = self.is_trapped(wrld, path)
+            by_wall = self.is_by_wall(wrld, path)
+        if path_to_monster: 
+            trapped_with_monster = self.trapped_with_monster(wrld, path_to_monster)
+            print("trapped with monster: ", trapped_with_monster)
+
         not_in_range_of_bomb = self.is_in_blast_radius()
         time_left = self.timestep - self.bomb_placed_time
         if time_left > 10: 
@@ -487,10 +514,10 @@ class TestCharacter(CharacterEntity):
 
         match self.state:
             case Enum.TRAVELING:
-                if monster_loc: 
+                if monster_loc and trapped_with_monster: 
                     self.training(wrld)
                     self.state = Enum.FLEEING
-                elif trapped:
+                elif by_wall:
                     # Move to wall, then place Bomb
                     self.color_path(path)
                     self.next_step(wrld, path)
@@ -520,7 +547,7 @@ class TestCharacter(CharacterEntity):
                 if not self.bomb_loc: 
                     # no bomb
                     self.state = Enum.TRAVELING
-                elif monster_loc: 
+                elif monster_loc and trapped_with_monster: 
                     # MONSTER AHH
                     # self.avoid_monster(wrld)
                     self.training(wrld)
