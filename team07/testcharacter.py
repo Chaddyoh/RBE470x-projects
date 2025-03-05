@@ -57,7 +57,7 @@ class TestCharacter(CharacterEntity):
     max_depth = 10
     timestep = 0
     monsters = []
-    weights = [1, 1, 1]
+    weights = [1, 1, 1, 1, 1, 1, 1]
         
     def locate_exit(self, wrld) -> tuple: # Returns X,Y tuple for exit
         for x_coordinate in range(wrld.width()):
@@ -159,7 +159,7 @@ class TestCharacter(CharacterEntity):
                         if monster_square:
                             monsters_list += monster_square
         return monsters_list 
-    
+
     def monster_range(self, wrld, state, monster):
         if monster.name == "selfpreserving":
             for dx in [-1,0,1]:
@@ -289,6 +289,7 @@ class TestCharacter(CharacterEntity):
         ### Getting all information needed for features ###
         # In the end you have
         # average_monster_distance, monster_count, exit_distance, bomb_distance (in_bomb_path), bomb_exists_time
+        # communication since the inchwors can communicate with structures, they get information about the other inchworms paths within the strucutre
         monsters = self.check_for_monster(wrld, state)
         monster_dists = []
         for monster in monsters:
@@ -302,13 +303,15 @@ class TestCharacter(CharacterEntity):
             average_monster_distance += monster_dist
         average_monster_distance = average_monster_distance / monster_count
         
+        closest_monster_dist = min(monster_dists)
+
         exit_loc = self.exit
         exit_path = self.plan_path(wrld, state, exit_loc)
         exit_dist = len(exit_path)
         
         bomb_loc = self.bomb_loc # assuming self.bomb_loc will be None if bomb does not exist
-        bomb_exists_time = self.timestep - self.bomb_placed_time # assuming this number increases over time
         if bomb_loc:
+            bomb_exists_time = self.timestep - self.bomb_placed_time # assuming this number increases over time
             bomb_dist = self.heuristic(state, bomb_loc)
             bomb_dangerzone = self.is_in_blast_radius(state) # True/False
         else:
@@ -322,12 +325,13 @@ class TestCharacter(CharacterEntity):
         f5 = 0                                      # dont account feature if not in bomb zone
         if bomb_dangerzone:
             f5 = 1 / (10 - bomb_exists_time)        # longer the time goes on, the smaller f5 gets (shouldnt it get larger)
+        f6 = closest_monster_dist
+        f7 = 0
+        if wrld.explosion_at(self.x, self.y): 
+            f7 = 1
 
-        return [f1, f2, f3, f4, f5]
+        return [f1, f2, f3, f4, f5, f6, f7]
         
-        
-
-
 
 
     def reward_calculator(self, wrld, state):
@@ -347,9 +351,27 @@ class TestCharacter(CharacterEntity):
             reward = 1
 
         return reward
+    
+    def next_sensed_wrld(self, action):
+        action_dictionary ={ 
+            'N': (0, -1), 
+            'NW': (-1, -1), 
+            'W' : (-1, 0), 
+            'SW' : (-1, 1), 
+            'S': (0, 1), 
+            'SE': (1, 1), 
+            'E': (1, 0), 
+            'NE': (1, -1), 
+            "stay": (0, 0), 
+            "bomb" :(0, 0)}
+        if action == "bomb":
+            # self.place_bomb
+            pass
+        else: 
+            (dx, dy) = action_dictionary[action]
+        pass
            
     def q_learning(self, wrld, state):
-        w1, w2, w3 = self.weights  # to get weights
         alpha = 0.5
         gamma = 0.9
         actions = ['N', 'NW', 'W', 'SW', 'S', 'SE', 'E', 'NE', "stay", "bomb"] # all player moves
@@ -364,12 +386,12 @@ class TestCharacter(CharacterEntity):
         max_Q = -math.inf
         # Max Q(s', a') part
         for a in actions: 
-            new_state = state + a #??? how calculate -> do later!
+            new_state = self.next_sensed_wrld(a) #??? how calculate -> do later!
+            # TODO: create function using wrld, SensedWrld, and action to return new state as a SensedWrld. similar to result() but can also place bomb 
             new_features = self.feature_calculator(new_state)
             Q_next_state = 0
             for i in range(len(self.weights)):
                 Q_next_state += self.weights[i] * new_features[i]
-            
             if Q_next_state > max_Q: 
                 max_Q = Q_next_state
         
@@ -378,7 +400,7 @@ class TestCharacter(CharacterEntity):
         
         # Update weights
         for i in range(len(self.weights)):
-            self.weightsi = self.weights[i] + alpha * delta * features[i]
+            self.weights[i] = self.weights[i] + alpha * delta * features[i]
         
                   
     def do(self, wrld):
@@ -395,6 +417,8 @@ class TestCharacter(CharacterEntity):
         trapped = self.is_trapped(wrld, path)
         not_in_range_of_bomb = self.is_in_blast_radius()
         time_left = self.timestep - self.bomb_placed_time
+        if time_left > 10: 
+            self.bomb_loc = None
         # TODO: use time left in bomb to determine actions
 
         match self.state:
