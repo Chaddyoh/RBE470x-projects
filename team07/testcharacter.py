@@ -76,7 +76,7 @@ class TestCharacter(CharacterEntity):
             if (current[0]+dx >=0) and (current[0]+dx < wrld.width()):
                 for dy in [-1,0,1]:
                     if (current[1]+dy >=0) and (current[1]+dy < wrld.height()):
-                        if wrld.empty_at(current[0]+dx, current[1]+dy) or wrld.exit_at(current[0]+dx, current[1]+dy) or wrld.wall_at(current[0]+dx, current[1]+dy):
+                        if wrld.empty_at(current[0]+dx, current[1]+dy) or wrld.exit_at(current[0]+dx, current[1]+dy) or wrld.wall_at(current[0]+dx, current[1]+dy) or wrld.monsters_at(current[0]+dx, current[1]+dy):
                             neighbors.append((current[0]+dx, current[1]+dy))
         return neighbors    
                 
@@ -88,7 +88,9 @@ class TestCharacter(CharacterEntity):
         if wrld.empty_at(location[0], location[1]) or wrld.exit_at(location[0], location[1]): 
             return 1
         elif wrld.wall_at(location[0], location[1]): 
-            return 13
+            return 13 
+        elif wrld.monsters_at(location[0], location[1]):
+            return 6
     
     def plan_path(self, wrld, start, goal) -> list[tuple]:
         frontier = PriorityQueue()
@@ -192,85 +194,6 @@ class TestCharacter(CharacterEntity):
             return wrld.empty_at(loc[0], loc[1]) # Code to check if empty except for wall: wrld.exit_at(loc[0], loc[1]) or wrld.bomb_at(loc[0], loc[1]) or wrld.explosion_at(loc[0], loc[1]) or wrld.monsters_at(loc[0], loc[1]) or wrld.characters_at(loc[0], loc[1]) 
                
         return False
-
-    def avoid_monster(self, wrld): # Ex (-3, 1)
-        # expectimax stuff here
-        actions = [(1,0), (1,1), (0,1), (-1,0), (-1, -1), (0, -1), (-1, 1), (1,-1), (0,0)] # all player moves
-        self.depth_counter = 0
-
-        def Expectimax_Search(state): # returns an action
-            max_so_far = -math.inf
-            best_action = (0,0)
-            for a in actions: 
-                if self.is_valid_space(wrld, result(state, a)): 
-                    self.depth_counter = 0
-                    v = Exp_value(result(state, a))
-                    if v > max_so_far: 
-                        max_so_far = v
-                        best_action = a
-            self.set_cell_color(state[0], state[1], Fore.BLUE + Back.BLUE)
-            return best_action
-
-        def Exp_value(state): #returns a utility value 
-            monster_list = terminal_test(state, wrld)
-            if (not monster_list) or (self.depth_counter > self.max_depth): 
-                return utility(state, monster_list)
-            v = 0
-            self.depth_counter += 1 
-            for a in actions: #Actions of state will be list of tuples # used to be actions[state]
-                if self.is_valid_space(wrld, result(state, a)): 
-                    p = Probability(result(state, a), monster_list)
-                    v = v + p * Max_value(result(state, a))
-            return v
-
-        def Max_value(state): # returns a utility value
-            monster_list = terminal_test(state, wrld)
-            if (not monster_list) or (self.depth_counter > self.max_depth): return utility(state, monster_list)
-            v = -math.inf
-            self.depth_counter += 1 
-            for a in actions:
-                if self.is_valid_space(wrld, result(state, a)): 
-                    v = max(v, Exp_value(result(state,a)))
-            return v
-        
-        def Probability(state, monsterlist):
-            """Return a probability that the monster will take this action"""
-            for monster in monsterlist:
-                if monster.name == "stupid":
-                    return 1.0/8 
-                else:
-                    return 1
-                    # if self.monster_range(wrld, state, monster):
-                    #     return 1
-                    # else:
-                    #     return 1.0/8
-                   
-        def result(location, action) -> tuple: 
-            """Returns the new location after taking an action"""
-            new_x = location[0] + action[0]
-            new_y = location[1] + action[1]
-            return (new_x, new_y)
-        
-        def terminal_test(state, wrld): 
-            """ True if we have successfully avoided the monster. Can stop fleeing"""
-            return self.check_for_monster(wrld, (self.x, self.y))
-
-        def utility(state, monster_list):
-            alpha_exit = 0.025
-            utility = 0
-            if self.is_valid_space(wrld, state):
-                for monster in monster_list:
-                    monster_loc = (monster.x, monster.y)
-                    monster_distance = self.heuristic(monster_loc, state)
-                    utility += monster_distance ** 2
-                exit_distance = len(self.plan_path(wrld, state, self.exit))
-                utility -= alpha_exit * exit_distance
-            else:
-                utility = 0
-            return utility
-            
-        best_action = Expectimax_Search((self.x, self.y))
-        self.move(best_action[0], best_action[1])
     
     def trapped_with_monster(self, wrld, path_to_exit, path_to_monster): 
         exit_trapped = False
@@ -381,11 +304,11 @@ class TestCharacter(CharacterEntity):
         # elif wrld.bomb_at(x, y): 
         #     reward = 0
         elif wrld.monsters_at(x, y):
-            reward = -1000
+            reward = -100
         elif wrld.explosion_at(x, y): 
-            reward = -5000
+            reward = -100
         else:
-            reward = 1
+            reward = -1
 
         return reward
     
@@ -402,16 +325,32 @@ class TestCharacter(CharacterEntity):
             "stay": (0, 0), 
             "bomb" :(0, 0) }
         character = wrld.me(self)
+        (dx, dy) = action_dictionary[action]
+
         if action == "bomb":
-            character.move(0, 0)
             character.place_bomb() 
-            # character.bomb_loc = (character.x, character.y)
-            # character.bomb_placed_time = character.timestep
-        else: 
-            (dx, dy) = action_dictionary[action]
-            character.move(dx, dy)
+        character.move(dx, dy)
         sensed_world, events = wrld.next()
-        return sensed_world
+
+        return sensed_world, (dx, dy)
+    
+    def action_based_movement(self, action):
+        action_dictionary = { 
+            'N': (0, -1), 
+            'NW': (-1, -1), 
+            'W' : (-1, 0), 
+            'SW' : (-1, 1), 
+            'S': (0, 1), 
+            'SE': (1, 1), 
+            'E': (1, 0), 
+            'NE': (1, -1), 
+            "stay": (0, 0), 
+            "bomb" :(0, 0) }
+        (dx, dy) = action_dictionary[action]
+
+        if action == "bomb":
+            self.place_bomb() 
+        self.move(dx, dy)
            
     def q_learning(self, sensed_wrld, state):
         alpha = 0.5
@@ -426,18 +365,22 @@ class TestCharacter(CharacterEntity):
             q += self.weights[i] * features[i]
 
         max_Q = -math.inf
+        r = self.reward_calculator(sensed_wrld, state)
         # Max Q(s', a') part
         for a in actions: 
-            new_sensed_wrld = self.next_sensed_wrld(sensed_wrld, a)
+            new_sensed_wrld, (dx, dy) = self.next_sensed_wrld(sensed_wrld, a)
             Q_next_state = 0
-            if new_sensed_wrld.me(self):
+            if new_sensed_wrld.me(self): # checks if character is alive still
                 new_features = self.feature_calculator(new_sensed_wrld)
                 for i in range(len(self.weights)):
                     Q_next_state += self.weights[i] * new_features[i]
             if Q_next_state > max_Q: 
                 max_Q = Q_next_state
+                r = self.reward_calculator(new_sensed_wrld, (state[0]+dx, state[1]+dy))
             
-        r = self.reward_calculator(sensed_wrld, state)
+        
+
+        print("reward: ", r)
         delta = (r + gamma * max_Q) - q
         
         # Update weights
@@ -452,12 +395,13 @@ class TestCharacter(CharacterEntity):
         # Max Q(s', a') part
         best_action = "bomb"
         for a in actions: 
-            new_sensed_wrld = self.next_sensed_wrld(wrld, a)
+            new_sensed_wrld, (dx, dy) = self.next_sensed_wrld(wrld, a)
             Q_next_state = 0
             if new_sensed_wrld.me(self):
                 new_features = self.feature_calculator(new_sensed_wrld)
                 for i in range(len(self.weights)):
                     Q_next_state += self.weights[i] * new_features[i]
+            print("action: ", a, "\tQ_value: ", Q_next_state)
             if Q_next_state > max_Q: 
                 max_Q = Q_next_state
                 best_action = a
@@ -471,11 +415,13 @@ class TestCharacter(CharacterEntity):
             while not finished_game:
                 character = sensed_world.me(self)
                 self.q_learning(sensed_world, (character.x, character.y))
-                self.pick_best_action(sensed_world)
-                sensed_world, events = sensed_world.next()
+                action = self.pick_best_action(sensed_world)
+                sensed_world, (dx, dy) = self.next_sensed_wrld(sensed_world, action)
+                # sensed_world, events = sensed_world.next()
 
-                for event in events:
+                for event in sensed_world.events:
                     if event.tpe == 2 or event.tpe == 3 or event.tpe == 4:
+
                         finished_game = True
 
             print(f"Weights are {self.weights} for iteration {iteration}")
@@ -501,7 +447,7 @@ class TestCharacter(CharacterEntity):
         if path:
             by_wall = self.is_by_wall(wrld, path)
         if path_to_monster: 
-            trapped_with_monster = self.trapped_with_monster(wrld, path_to_monster)
+            trapped_with_monster = self.trapped_with_monster(wrld, path, path_to_monster)
             print("trapped with monster: ", trapped_with_monster)
 
         not_in_range_of_bomb = self.is_in_blast_radius()
@@ -528,7 +474,10 @@ class TestCharacter(CharacterEntity):
                     self.color_path(path)
                     self.next_step(wrld, path)
             case Enum.BOMBING:
-                if not_in_range_of_bomb: # Player in danger of explosion
+                if monster_loc and trapped_with_monster:
+                    self.training(wrld)
+                    self.state = Enum.FLEEING
+                elif not_in_range_of_bomb: # Player in danger of explosion
                     self.state = Enum.WAITING
                 else: 
                     self.next_step(wrld)
@@ -541,16 +490,18 @@ class TestCharacter(CharacterEntity):
                         self.next_step(wrld, path)
                         self.state = Enum.TRAVELING
                 else:
-                    self.pick_best_action(wrld)
-                    self.avoid_monster(wrld)               
+                    action = self.pick_best_action(wrld)
+                    self.action_based_movement(action)
+                    # self.avoid_monster(wrld)               
             case Enum.WAITING: 
-                if not self.bomb_loc: 
-                    # no bomb
-                    self.state = Enum.TRAVELING
-                elif monster_loc and trapped_with_monster: 
+                if monster_loc and trapped_with_monster: 
                     # MONSTER AHH
                     # self.avoid_monster(wrld)
                     self.training(wrld)
                     self.state = Enum.FLEEING
+                elif not self.bomb_loc: 
+                    # no bomb
+                    self.state = Enum.TRAVELING
+                
         
         self.timestep += 1
