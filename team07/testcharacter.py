@@ -59,7 +59,7 @@ class TestCharacter(CharacterEntity):
     max_depth = 10
     timestep = 0
     monsters = []
-    weights = [1, -1, 1, -1, -1, -1, -1, -1]
+    weights = [1, -1, 1, -1, -1, -1, -1, -1, 1]
     bomb_loc = None
     bomb_placed_time = 0
         
@@ -186,14 +186,18 @@ class TestCharacter(CharacterEntity):
                 self.move(-1, -1)
             elif wrld.empty_at(self.x+1, self.y-1): 
                 self.move(1, -1)
-            elif wrld.empty_at(self.x-1, self.y):
-                self.move(-1, 0)
-            elif wrld.empty_at(self.x+1, self.y):
-                self.move(1, 0)
             elif wrld.empty_at(self.x-1, self.y+1):
                 self.move(-1, 1)
             elif wrld.empty_at(self.x+1, self.y+1):
                 self.move(1, 1)
+            elif wrld.empty_at(self.x-1, self.y):
+                self.move(-1, 0)
+            elif wrld.empty_at(self.x+1, self.y):
+                self.move(1, 0)
+            elif wrld.empty_at(self.x-1, self.y):
+                self.move(0, -1)
+            elif wrld.empty_at(self.x+1, self.y):
+                self.move(0, 1)
         else:
             print("cry")
 
@@ -284,13 +288,18 @@ class TestCharacter(CharacterEntity):
 
         monsters = self.check_for_monster(wrld, state)
         monster_dists = []
+        closest_monster = None
+        closest_monster_dist = math.inf
         for monster in monsters:
             monster_loc = (monster.x, monster.y)
             monster_dist = self.heuristic(state, monster_loc)
+            if monster_dist < closest_monster_dist:
+                closest_monster_dist = monster_dist
+                closest_monster = monster
             monster_dists.append(monster_dist)
         monster_count = len(monsters)
-
         average_monster_distance = 0
+        
         if monster_count:
             for monster_dist in monster_dists:
                 average_monster_distance += monster_dist
@@ -298,9 +307,12 @@ class TestCharacter(CharacterEntity):
         
             closest_monster_dist = min(monster_dists)
 
+
         exit_loc = self.exit
         exit_path = self.plan_path(wrld, state, exit_loc)
         exit_dist = len(exit_path)
+        if exit_path:
+            exit_euc_dist = self.heuristic(state, exit_path[1])
         
         # bomb_loc = character.bomb_loc # assuming self.bomb_loc will be None if bomb does not exist
         bomb_dangerzone = False
@@ -312,7 +324,14 @@ class TestCharacter(CharacterEntity):
             bomb_dangerzone = self.is_in_blast_radius(wrld, state) # True/False
         else:
             bomb_dist = None
-
+        
+        if monster_count and exit_path:
+            monster_exit_dist = self.heuristic((closest_monster.x, closest_monster.y), exit_path[1])
+            try:
+                angle = math.acos(((monster_exit_dist**2 - exit_euc_dist**2 - closest_monster_dist**2) / (-2 * exit_euc_dist * closest_monster_dist)))
+            except:
+                angle = 0
+        
         """f1=monster_dist, f2=monster_count, f3=exit_dist, f4=bomb_dist, f5=in_bomb_path + bomb_time_existing,"""
         f1 = average_monster_distance               # the larger the average monster distance, the smaller the f
         f2 = monster_count / 2                      # 1.0, 0.5, or 0.0
@@ -330,7 +349,12 @@ class TestCharacter(CharacterEntity):
         if wrld.explosion_at(character.x, character.y): 
             f7 = 1
         f8 = 1/ (1 + len(self.get_walkables(wrld, (character.x, character.y)))) #if in corner
-        features = [f1, f2, f3, f4, f5, f6, f7, f8]
+
+        f9 = 0
+        if monster_count and exit_path:
+            if angle > 0: # f9 = 1 if there is an angle between monster and next part of path
+                f9 = 1
+        features = [f1, f2, f3, f4, f5, f6, f7, f8, f9]
 
         # Normalize features
         for i in range(len(features)):
@@ -468,7 +492,6 @@ class TestCharacter(CharacterEntity):
             
             for i in range(len(self.weights)):
                     Q_next_state += self.weights[i] * new_features[i]
-            # print("action: ", a, "\tQ_value: ", Q_next_state)
             if Q_next_state > max_Q: 
                 max_Q = Q_next_state
                 best_action = a
