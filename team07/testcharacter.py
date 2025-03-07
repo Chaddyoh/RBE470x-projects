@@ -89,14 +89,13 @@ class TestCharacter(CharacterEntity):
             (0, 1) : "S",
             (0, 0) : "stay"
         }
-        if not wrld.bombs:
-            walkable_actions.append("bomb")
+
         for dx in [-1,0,1]:
             for dy in [-1,0,1]:
                 state = (current[0]+dx, current[1]+dy)
                 if (current[0]+dx >=0) and (current[0]+dx < wrld.width()) and (current[1]+dy >=0) and (current[1]+dy < wrld.height()):
                     # Check if the cell is walkable
-                    technically_walkable = wrld.empty_at(current[0]+dx, current[1]+dy) or wrld.exit_at(current[0]+dx, current[1]+dy) or wrld.bomb_at(current[0]+dx, current[1]+dy)
+                    technically_walkable = wrld.empty_at(current[0]+dx, current[1]+dy) or wrld.exit_at(current[0]+dx, current[1]+dy) or wrld.bomb_at(current[0]+dx, current[1]+dy) or wrld.characters_at(current[0]+dx, current[1]+dy)
 
                     # Check Bomb is about to explode / explosions on floor
                     bomb_exists_time = 10
@@ -105,7 +104,7 @@ class TestCharacter(CharacterEntity):
                         bomb_obj = list(wrld.bombs.values())[0]
                         bomb_loc = (bomb_obj.x, bomb_obj.y)
                         bomb_exists_time = bomb_obj.timer
-                        bomb_dangerzone = self.is_in_blast_radius(wrld, state) 
+                        bomb_dangerzone = self.is_in_blast_radius(wrld, state)    
 
                     # Check thats at least one away from monster
                     monster_dangerzone = False
@@ -119,6 +118,9 @@ class TestCharacter(CharacterEntity):
                     else:
                         if technically_walkable and (not bomb_dangerzone or (bomb_exists_time > 2)) and not monster_dangerzone:
                             walkable_actions.append(direction_to_action[(dx, dy)])
+                            
+                            if not wrld.bombs and dx == 0 and dy == 0:
+                                walkable_actions.append("bomb")
                             
         if not training:
             print("i've finished training, and here are my walkable actions: ", walkable_actions)
@@ -571,7 +573,7 @@ class TestCharacter(CharacterEntity):
         match self.state:
             case Enum.TRAVELING:
                 if monster_loc and trapped_with_monster: 
-                    self.training(wrld, 10)
+                    self.training(wrld, 4)
                     action = self.pick_best_action(wrld, (self.x, self.y))
                     self.action_based_movement(action)
                     self.state = Enum.FLEEING
@@ -592,7 +594,7 @@ class TestCharacter(CharacterEntity):
                     self.next_step(wrld, path)
             case Enum.BOMBING:
                 if monster_loc and trapped_with_monster:
-                    self.training(wrld, 10)
+                    self.training(wrld, 4)
                     action = self.pick_best_action(wrld, (self.x, self.y))
                     self.action_based_movement(action)
                     self.state = Enum.FLEEING
@@ -618,7 +620,7 @@ class TestCharacter(CharacterEntity):
                 if monster_loc and trapped_with_monster: 
                     # MONSTER AHH
                     # self.avoid_monster(wrld)
-                    self.training(wrld, 10)
+                    self.training(wrld, 4)
                     action = self.pick_best_action(wrld, (self.x, self.y))
                     self.action_based_movement(action)
                     self.state = Enum.FLEEING
