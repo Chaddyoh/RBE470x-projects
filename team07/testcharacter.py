@@ -7,6 +7,7 @@ from sensed_world import SensedWorld
 from colorama import Fore, Back
 import heapq
 import math
+import random
 
 class Enum():
     TRAVELING = 0
@@ -58,7 +59,7 @@ class TestCharacter(CharacterEntity):
     max_depth = 10
     timestep = 0
     monsters = []
-    weights = [-1, -1, 1, -1, -1, -1, -1, -1]
+    weights = [1, -1, 1, -1, -1, -1, -1, -1]
     bomb_loc = None
     bomb_placed_time = 0
         
@@ -67,7 +68,39 @@ class TestCharacter(CharacterEntity):
             for y_coordinate in range(wrld.height()):
                 if wrld.exit_at(x_coordinate, y_coordinate):
                     return (x_coordinate, y_coordinate)   
-                         
+
+    def get_walkables(self, wrld, current) -> list[tuple]:
+        neighbors = []
+        for dx in [-1,0,1]:
+            for dy in [-1,0,1]:
+                if (current[0]+dx >=0) and (current[0]+dx < wrld.width()) and (current[1]+dy >=0) and (current[1]+dy < wrld.height()):
+                    if wrld.empty_at(current[0]+dx, current[1]+dy) or wrld.exit_at(current[0]+dx, current[1]+dy) or wrld.bomb_at(current[0]+dx, current[1]+dy):
+                        neighbors.append((current[0]+dx, current[1]+dy))
+        return neighbors
+
+    def get_walkable_actions(self, wrld, current): 
+        walkable_actions = []
+        direction_to_action = {
+            (-1, -1) : "NW",
+            (-1, 1) : "SW",
+            (-1, 0) : "W",
+            (1, -1) : "NE", 
+            (1, 1) : "SE", 
+            (1, 0) : "E",
+            (0, -1) : "N",
+            (0, 1) : "S",
+            (0, 0) : "stay"
+        }
+        if not wrld.bombs:
+            walkable_actions.append("bomb")
+        for dx in [-1,0,1]:
+            for dy in [-1,0,1]:
+                if (current[0]+dx >=0) and (current[0]+dx < wrld.width()) and (current[1]+dy >=0) and (current[1]+dy < wrld.height()):
+                    if wrld.empty_at(current[0]+dx, current[1]+dy) or wrld.exit_at(current[0]+dx, current[1]+dy) or wrld.bomb_at(current[0]+dx, current[1]+dy):
+                        walkable_actions.append(direction_to_action[(dx, dy)])
+                return walkable_actions
+        
+
     def get_neighbors(self, wrld, current) -> list[tuple]: # Returns a list of tuples of the surrounding empty nodes. Assumes the exit node is empty
         
         # TODO:FIND MONSTERS TOO
@@ -146,13 +179,21 @@ class TestCharacter(CharacterEntity):
             else: 
                 print(Fore.RED + f"I placed a bomb :D")
                 self.place_bomb()
-                self.bomb_loc = (self.x, self.y)
                 self.bomb_placed_time = self.timestep
         elif self.state == Enum.BOMBING:
+            print("x:", self.x, "\ty:", self.y)
             if wrld.empty_at(self.x-1, self.y-1):
                 self.move(-1, -1)
             elif wrld.empty_at(self.x+1, self.y-1): 
                 self.move(1, -1)
+            elif wrld.empty_at(self.x-1, self.y):
+                self.move(-1, 0)
+            elif wrld.empty_at(self.x+1, self.y):
+                self.move(1, 0)
+            elif wrld.empty_at(self.x-1, self.y+1):
+                self.move(-1, 1)
+            elif wrld.empty_at(self.x+1, self.y+1):
+                self.move(1, 1)
         else:
             print("cry")
 
@@ -212,11 +253,13 @@ class TestCharacter(CharacterEntity):
     def is_by_wall(self, wrld, path): 
         return wrld.wall_at(path[1][0], path[1][1]) 
 
-    def is_in_blast_radius(self, state = None): 
+    def is_in_blast_radius(self, wrld, state = None): 
         if not state:
             state = (self.x, self.y)
-        if self.bomb_loc:
-            return state[0] != self.bomb_loc[0] and abs(state[0] - self.bomb_loc[0]) < 5 and state[1] != self.bomb_loc[1] and abs(state[1] - self.bomb_loc[1]) < 5
+        if wrld.bombs:
+            bomb_obj = list(wrld.bombs.values())[0]
+            bomb_loc = (bomb_obj.x, bomb_obj.y)
+            return state[0] == bomb_loc[0] and abs(state[0] - bomb_loc[0]) < 5 and state[1] == bomb_loc[1] and abs(state[1] - bomb_loc[1]) < 5
         else:
             return False
     
@@ -266,17 +309,17 @@ class TestCharacter(CharacterEntity):
             bomb_loc = (bomb_obj.x, bomb_obj.y)
             bomb_exists_time = bomb_obj.timer
             bomb_dist = self.heuristic(state, bomb_loc)
-            bomb_dangerzone = self.is_in_blast_radius(state) # True/False
+            bomb_dangerzone = self.is_in_blast_radius(wrld, state) # True/False
         else:
             bomb_dist = None
 
         """f1=monster_dist, f2=monster_count, f3=exit_dist, f4=bomb_dist, f5=in_bomb_path + bomb_time_existing,"""
-        f1 = 1 / (average_monster_distance + 1)     # the larger the average monster distance, the smaller the f
+        f1 = average_monster_distance               # the larger the average monster distance, the smaller the f
         f2 = monster_count / 2                      # 1.0, 0.5, or 0.0
         f3 = 1 / (exit_dist + 1)                    # longer the distance, the smaller the f
         f4 = 0
         if bomb_dist:
-            f4 = 1 / (bomb_dist + 1)                # longer the bomb distance, the smaller the f
+            f4 = bomb_dist                          # longer the bomb distance, the smaller the f
         f5 = 0                                      # dont account feature if not in bomb zone
         if bomb_dangerzone:
             f5 = 1 / (bomb_exists_time + 1)        # longer the time goes on, the larger f5 gets
@@ -286,29 +329,36 @@ class TestCharacter(CharacterEntity):
         f7 = 0
         if wrld.explosion_at(character.x, character.y): 
             f7 = 1
-        f8 = 0
-        if self.is_by_wall(wrld, exit_path): 
-            f8 = 1
-        return [f1, f2, f3, f4, f5, f6, f7, f8]
-        
+        f8 = 1/ (1 + len(self.get_walkables(wrld, (character.x, character.y)))) #if in corner
+        features = [f1, f2, f3, f4, f5, f6, f7, f8]
+
+        # Normalize features
+        for i in range(len(features)):
+            features[i] = features[i]/sum(features) 
+
+        return features
 
 
     def reward_calculator(self, wrld, state):
         x, y = state
-        if wrld.empty_at(x, y): 
-            reward = 1
-        elif wrld.exit_at(x, y): 
-            reward = 5000
-        elif wrld.wall_at(x, y): 
-            reward = -1
-        # elif wrld.bomb_at(x, y): 
-        #     reward = 0
-        elif wrld.monsters_at(x, y):
-            reward = -100
-        elif wrld.explosion_at(x, y): 
-            reward = -100
-        else:
-            reward = -1
+        try:
+            if wrld.empty_at(x, y): 
+                reward = -1
+            elif wrld.exit_at(x, y): 
+                print("q learning found the exit")
+                reward = 5000
+            elif wrld.wall_at(x, y): 
+                reward = -50
+            # elif wrld.bomb_at(x, y): 
+            #     reward = 0
+            elif wrld.monsters_at(x, y):
+                reward = -5000
+            elif wrld.explosion_at(x, y): 
+                reward = -5000
+            else:
+                reward = -1
+        except:
+            reward = -10
 
         return reward
     
@@ -350,8 +400,13 @@ class TestCharacter(CharacterEntity):
 
         if action == "bomb":
             self.place_bomb() 
+        print("Movement time ! ", action)
         self.move(dx, dy)
-           
+
+    def exploration_function(self, utility, num_tries): 
+        k = 0.5
+        return utility + k / (num_tries +1)
+
     def q_learning(self, sensed_wrld, state):
         alpha = 0.5
         gamma = 0.9
@@ -370,58 +425,76 @@ class TestCharacter(CharacterEntity):
         for a in actions: 
             new_sensed_wrld, (dx, dy) = self.next_sensed_wrld(sensed_wrld, a)
             Q_next_state = 0
-            if new_sensed_wrld.me(self): # checks if character is alive still
-                new_features = self.feature_calculator(new_sensed_wrld)
-                for i in range(len(self.weights)):
+            if not new_sensed_wrld.me(self): # if character dies
+                prev_character = list(sensed_wrld.characters.values())[0][0]
+                prev_character.x += dx
+                prev_character.y += dy
+                # add movement for character (x,y)
+                new_sensed_wrld.characters[78] = [prev_character]
+            new_features = self.feature_calculator(new_sensed_wrld)
+            for i in range(len(self.weights)):
                     Q_next_state += self.weights[i] * new_features[i]
             if Q_next_state > max_Q: 
                 max_Q = Q_next_state
                 r = self.reward_calculator(new_sensed_wrld, (state[0]+dx, state[1]+dy))
             
-        
-
-        print("reward: ", r)
         delta = (r + gamma * max_Q) - q
         
         # Update weights
         for i in range(len(self.weights)):
             self.weights[i] = self.weights[i] + alpha * delta * features[i]
+        
     
         
-    def pick_best_action(self, wrld): 
+    def pick_best_action(self, wrld, state): 
         actions = ['N', 'NW', 'W', 'SW', 'S', 'SE', 'E', 'NE', "stay", "bomb"] # all player moves
+        actions = self.get_walkable_actions(wrld, state)
         # where wrld is a real wrld or a sensed world 
         max_Q = -math.inf
         # Max Q(s', a') part
-        best_action = "bomb"
-        for a in actions: 
+        best_action = "stay"
+        for a in actions:
             new_sensed_wrld, (dx, dy) = self.next_sensed_wrld(wrld, a)
             Q_next_state = 0
-            if new_sensed_wrld.me(self):
-                new_features = self.feature_calculator(new_sensed_wrld)
-                for i in range(len(self.weights)):
+            if not new_sensed_wrld.me(self):
+                prev_character = list(wrld.characters.values())[0][0]
+                prev_character.x += dx
+                prev_character.y += dy
+                # add movement for character (x,y)
+                new_sensed_wrld.characters[78] = [prev_character]
+                
+            
+            new_features = self.feature_calculator(new_sensed_wrld)
+            
+            for i in range(len(self.weights)):
                     Q_next_state += self.weights[i] * new_features[i]
-            print("action: ", a, "\tQ_value: ", Q_next_state)
+            # print("action: ", a, "\tQ_value: ", Q_next_state)
             if Q_next_state > max_Q: 
                 max_Q = Q_next_state
                 best_action = a
         return best_action
 
     def training(self, wrld):
-        for iteration in range(10): 
+        for iteration in range(20): 
             # Make new world for each iteration
             sensed_world = SensedWorld.from_world(wrld)
             finished_game = False
             while not finished_game:
                 character = sensed_world.me(self)
                 self.q_learning(sensed_world, (character.x, character.y))
-                action = self.pick_best_action(sensed_world)
+                # actions = self.get_walkable_actions(wrld, (character.x, character.y))
+                # action = random.choice(actions)
+                action = self.pick_best_action(sensed_world, (character.x, character.y))
                 sensed_world, (dx, dy) = self.next_sensed_wrld(sensed_world, action)
                 # sensed_world, events = sensed_world.next()
 
+                # # Normalize weights
+                # for i in range(len(self.weights)):
+                #     self.weights[i] = self.weights[i]/sum(self.weights)
+
+
                 for event in sensed_world.events:
                     if event.tpe == 2 or event.tpe == 3 or event.tpe == 4:
-
                         finished_game = True
 
             print(f"Weights are {self.weights} for iteration {iteration}")
@@ -434,7 +507,8 @@ class TestCharacter(CharacterEntity):
         by_wall = False
         trapped_with_monster = False
         path_to_monster = []
-
+        bomb_exists = bool(wrld.bombs)
+        
         if self.check_for_monster(wrld, (self.x, self.y)):
             first_seen_monster = self.check_for_monster(wrld, (self.x, self.y))[0]
             monster_loc = (first_seen_monster.x, first_seen_monster.y)
@@ -450,10 +524,7 @@ class TestCharacter(CharacterEntity):
             trapped_with_monster = self.trapped_with_monster(wrld, path, path_to_monster)
             print("trapped with monster: ", trapped_with_monster)
 
-        not_in_range_of_bomb = self.is_in_blast_radius()
-        time_left = self.timestep - self.bomb_placed_time
-        if time_left > 10: 
-            self.bomb_loc = None
+        in_range_of_bomb = self.is_in_blast_radius(wrld)
         # TODO: use time left in bomb to determine actions
 
         print(f"state: {self.state}")
@@ -462,13 +533,18 @@ class TestCharacter(CharacterEntity):
             case Enum.TRAVELING:
                 if monster_loc and trapped_with_monster: 
                     self.training(wrld)
+                    action = self.pick_best_action(wrld, (self.x, self.y))
+                    self.action_based_movement(action)
                     self.state = Enum.FLEEING
                 elif by_wall:
-                    # Move to wall, then place Bomb
-                    self.color_path(path)
-                    self.next_step(wrld, path)
-                    # Switch States
-                    self.state = Enum.BOMBING
+                    if bomb_exists:
+                        state = Enum.WAITING
+                    else:
+                        # Move to wall, then place Bomb
+                        self.color_path(path)
+                        self.next_step(wrld, path)
+                        # Switch States
+                        self.state = Enum.BOMBING
                 else: 
                     # A* walking
                     self.color_path(path)
@@ -476,21 +552,23 @@ class TestCharacter(CharacterEntity):
             case Enum.BOMBING:
                 if monster_loc and trapped_with_monster:
                     self.training(wrld)
+                    action = self.pick_best_action(wrld, (self.x, self.y))
+                    self.action_based_movement(action)
                     self.state = Enum.FLEEING
-                elif not_in_range_of_bomb: # Player in danger of explosion
+                elif not in_range_of_bomb: # Player in danger of explosion
                     self.state = Enum.WAITING
                 else: 
                     self.next_step(wrld)
             case Enum.FLEEING:
                 if not monster_loc: 
-                    if self.bomb_loc: # Bomb is on map
+                    if bomb_exists: # Bomb is on map
                         self.state = Enum.BOMBING
                     else:
                         self.color_path(path)
                         self.next_step(wrld, path)
                         self.state = Enum.TRAVELING
                 else:
-                    action = self.pick_best_action(wrld)
+                    action = self.pick_best_action(wrld, (self.x, self.y))
                     self.action_based_movement(action)
                     # self.avoid_monster(wrld)               
             case Enum.WAITING: 
@@ -498,10 +576,14 @@ class TestCharacter(CharacterEntity):
                     # MONSTER AHH
                     # self.avoid_monster(wrld)
                     self.training(wrld)
+                    action = self.pick_best_action(wrld, (self.x, self.y))
+                    self.action_based_movement(action)
                     self.state = Enum.FLEEING
-                elif not self.bomb_loc: 
+                elif not bomb_exists: 
                     # no bomb
                     self.state = Enum.TRAVELING
+                else:
+                    self.move(0,0)
                 
         
         self.timestep += 1
