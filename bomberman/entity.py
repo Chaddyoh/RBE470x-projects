@@ -273,6 +273,11 @@ class CharacterEntity(AIEntity, MovableEntity):
     def done(self, wrld):
         pass
 
+    def __repr__(self):
+        return (f"CharacterEntity(name={self.name!r}, avatar={self.avatar!r}, "
+            f"x={self.x}, y={self.y}, dx={self.dx}, dy={self.dy}, "
+            f"maybe_place_bomb={self.maybe_place_bomb})")
+
     ###################
     # Private methods #
     ###################
