@@ -9,6 +9,7 @@ from colorama import Fore, Back
 import heapq
 import math
 import random
+import os
 
 class Enum():
     TRAVELING = 0
@@ -188,15 +189,15 @@ class TestCharacter(CharacterEntity):
 
     def check_for_monster(self, wrld, current) -> tuple:
         global monsters
-        monsters_list = []
-        for dx in [-3,-2,-1,0,1,2,3]:
+        monsters_dict = {}
+        for dx in [-4,-3,-2,-1,0,1,2,3, 4]:
             if (current[0]+dx >=0) and (current[0]+dx < wrld.width()):
-                for dy in [-3,-2,-1,0,1,2,3]:
+                for dy in [-4,-3,-2,-1,0,1,2,3,4]:
                     if (current[1]+dy >=0) and (current[1]+dy < wrld.height()):
                         monster_square = wrld.monsters_at(current[0]+dx, current[1]+dy)
                         if monster_square:
-                            monsters_list += monster_square
-        return monsters_list
+                            monsters_dict[0] = (current[0]+dx, current[1]+dy)
+        return monsters_dict
 
     # def monster_range(self, wrld, state, monster):
     #     if monster.name == "selfpreserving":
@@ -341,17 +342,26 @@ class TestCharacter(CharacterEntity):
         exit_loc = self.exit  # Assumes self.exit is set to (exit_x, exit_y)
         manhattan_dist = abs(exit_loc[0] - next_state[0]) + abs(exit_loc[1] - next_state[1])
         max_manhattan = wrld.width() + wrld.height()  # Maximum possible distance in grid
+        mmanhattan_dist = 0
         f1 = manhattan_dist / max_manhattan
         
         # Feature 2: Inverse distance to closest monster
         monsters = self.check_for_monster(wrld, current_state)  # Returns list of monster objects
         if wrld.monsters:
-            monster_obj = list(wrld.monsters.values())[0]  # Consider the first bomb (simplification)
-            print(wrld.monster)
-            monster_loc = (monster_obj.x, monster_obj.y)
-            monster_dist = abs(monster_loc[0] - next_state[0]) + abs(monster_loc[1] - next_state[1])
-            f2 = monster_dist / max_manhattan  # Normalized distance to bomb
+            monster = self.check_for_monster(wrld, next_state)
+            for m, p in monster.items():
+                mmanhattan_dist = abs(p[0] - next_state[0]) + abs(p[1] - next_state[1])
+                #print("Monster DIST: ", mmanhattan_dist)
 
+            #print(monster)
+            f2=mmanhattan_dist/max_manhattan
+            
+            
+            # monster_obj = list(wrld.monsters.values())[0]  # Consider the first bomb (simplification)
+            # print(wrld.monsters)
+            # monster_loc = (monster_obj.x, monster_obj.y)
+            # monster_dist = abs(monster_loc[0] - next_state[0]) + abs(monster_loc[1] - next_state[1])
+            # f2 = monster_dist / max_manhattan  # Normalized distance to bomb
         else:
             f2 = 0
         
@@ -375,7 +385,6 @@ class TestCharacter(CharacterEntity):
             f4 = 0  # Not in blast radius
             f5 = 0  # No timer
         
-        # Features 6-7: Action-specific indicators
         f6 = 1 if a == 'stay' else 0  # Is the action 'stay'?
         f7 = 1 if a == 'bomb' else 0  # Is the action 'bomb'?
         
@@ -401,39 +410,33 @@ class TestCharacter(CharacterEntity):
         exit_loc = self.locate_exit(wrld)
         if (exit_loc[0]-x) > (exit_loc[0] - self.ddx):
             #print("REWARD Getting Closer in the X")
-            reward += 10
-        else:
-            reward +=-2
-        if (exit_loc[1]-y) > (exit_loc[1] - self.ddy):
-            #print("REWARD Getting Closer in the Y")
-            reward += 30
-        else:
-            reward +=-2
+            reward += 4
+        if (exit_loc[1]-y) < (exit_loc[1] - self.ddy):
+            reward += 7
         if (self.count_walls(wrld)<self.dwallcount):
-            #print("REWARD Getting Closer in the Y")
-            reward += 1000
-        if (x == self.ddx and y ==self.ddy):
-           # print("REWARD Staying")
-            reward += -90        
+            reward += 180
+        if not (x == self.ddx and y ==self.ddy):
+            reward += 10       
         if wrld.exit_at(x, y):
-            reward+= 5000
-            #print("REWARD FOR EXIT")
+            reward+= 10000
         if wrld.bombs:
             bomb_obj = list(wrld.bombs.values())[0]
             bomb_loc = (bomb_obj.x, bomb_obj.y)
-            reward+= 60
-            #print("REWARD FOR BOMB")
-            if bomb_loc[0] == state[0] or bomb_loc[1] == state[1]:
-                reward+= -50
-            #    print("REWARD FOR BOMB IN CARDINAL")
-        if wrld.monsters_at(x, y):
-            reward-= 10 
-            #print("REWARD FOR MONSTER AT")
-        if wrld.explosion_at(x, y):
-            reward+=-30
-        reward+=100**(state[1]/exit_loc[1])
-            #print("SYM DIED TO EXPLOSION")
-        #print("REWARD: ",reward)
+            reward+= 500
+            if bomb_loc[0] != state[0] and bomb_loc[1] != state[1]:
+                reward+=20
+        if not wrld.monsters_at(x, y):
+            reward+=5
+        if not wrld.explosion_at(x, y):
+            reward+=2
+        if self.check_for_monster(wrld, state):
+            monster = self.check_for_monster(wrld, state)
+            for m, p in monster.items():
+                mmanhattan_dist = abs(p[0] - state[0]) + abs(p[1] - state[1])
+                #print("Monster DIST: ", mmanhattan_dist)
+            if mmanhattan_dist > 4:
+                reward +=10 
+        reward-=2
         self.ddx = state[0]
         self.ddy = state[1]
         self.dwallcount = self.count_walls(wrld)
@@ -487,6 +490,7 @@ class TestCharacter(CharacterEntity):
     def q_learning(self, sensed_wrld, state):
         alpha = 0.5
         gamma = 0.9
+
         actions = self.get_walkable_actions(sensed_wrld, state)
         q_values = {}
         for a in actions:
@@ -536,6 +540,7 @@ class TestCharacter(CharacterEntity):
         return max_action    
     
     def training(self, wrld, iterations):
+        char_w = 0
         for iteration in range(iterations):
             # Make new world for each iteration
             #self.epsilon = self.epsilon**(iteration/(iterations))
@@ -543,10 +548,14 @@ class TestCharacter(CharacterEntity):
             character = sensed_world.me(self)
             while character:
                 state = (character.x, character.y)
-                print(f"STATE: ({character.x:>3}, {character.y:>3})")  # Left-justifies "REWARD" with 16 spaces
+                print(f"Training... {100*iteration/iterations:.2f} % complete. STATE: ({character.x:>3}, {character.y:>3}), Times Won: {char_w}, Win Rate: {100*char_w/(iteration+1):.3f}")
+                if character.y >= 15:
+                    char_w+=1
+                #print(f"\t\t\t\t\tSTATE: ({character.x:>3}, {character.y:>3}), {iteration}")  # Left-justifies "REWARD" with 16 spaces
                 next_action = self.q_learning(sensed_world, state) # Run q-learning which will update weights
                 sensed_world, (dx, dy) = self.next_sensed_wrld(sensed_world, next_action)
                 character = sensed_world.me(self)
+                os.system('clear')      
 
             #print(f"Weights are {self.weights} for iteration {iteration}")
         return False
@@ -554,9 +563,23 @@ class TestCharacter(CharacterEntity):
     def do(self, wrld):
         # Your code here
         self.exit = self.locate_exit(wrld)
-        self.epsilon = 0.45
+        self.epsilon = 0.2
         if self.is_training:
-            self.is_training = self.training(wrld, 10000)
+            use_recent_weights = input("Do you want to use the last trained weights? [Y/n]: ")
+            if use_recent_weights.lower() == "y": 
+                with open("weigths.txt", "r") as wf:
+                    lines = wf.readlines()
+                    recentw = lines[-1].strip()
+                    for i in range(1,len(self.weights)+1):
+                        self.weights[-i] = float(lines[-i])
+                        print(lines[-i])
+                    print("Using the most recent weights: ", self.weights)
+                self.is_training = False
+            else:
+                self.is_training = self.training(wrld, 5000)
+                with open("weigths.txt", "a") as wf:
+                    wf.write('\n'.join(str(w) for w in self.weights))
+                    wf.write('\n')
 
         action = self.pick_best_action(wrld, (self.x, self.y))
         #print()
