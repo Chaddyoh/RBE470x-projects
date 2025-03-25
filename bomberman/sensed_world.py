@@ -100,8 +100,18 @@ class SensedWorld(World):
 
     def manage_events(self):
         for e in self.events:
-            if e.tpe == Event.CHARACTER_KILLED_BY_MONSTER:
+            if e.tpe == Event.BOMB_HIT_CHARACTER:
+                print("ME HIT BY BOMB")
+            elif e.tpe == Event.CHARACTER_KILLED_BY_MONSTER:
                 self.remove_character(e.character)
+                print("ME KILLED BY MONSTE")
+            elif e.tpe == Event.CHARACTER_FOUND_EXIT:
+                print("ME FOUND EXIT")
+
+        
+            # if e.tpe == Event.CHARACTER_KILLED_BY_MONSTER:
+            #     self.remove_character(e.character)
+            #     print("ME KILLED BY MONSTER")
 
     def __repr__(self):
     # Grid dimensions: width is number of columns, height is number of rows in first column
